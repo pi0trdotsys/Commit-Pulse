@@ -13,7 +13,7 @@ function mulberry32(seed: number) {
 }
 
 /** 90 dni historii, ostatni element = dzisiaj. */
-export function generateHistory(days = 90, seed = 20260729): DayCommit[] {
+export function generateHistory(days = 90, seed = 20260367): DayCommit[] {
   const rand = mulberry32(seed);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
