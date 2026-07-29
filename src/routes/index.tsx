@@ -110,7 +110,11 @@ function Index() {
             <Stat label="dziś" value={String(todayCount())} />
             <Stat label="seria" value={`${streak()} dni`} />
             <Stat label="7 dni" value={String(sum(lastN(HISTORY, 7)))} />
-            <Stat label="w/w" value={wow.label} accent />
+            <Stat
+              label="w/w"
+              value={wow.label}
+              accent={wow.direction === "down" ? "down" : "up"}
+            />
           </div>
         </div>
       </header>
@@ -374,12 +378,20 @@ function Index() {
   );
 }
 
-function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function Stat({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: "up" | "down";
+}) {
   return (
     <div>
       <p
         className={cn("font-display text-3xl leading-none tracking-tight")}
-        style={accent ? { color: "var(--trend-up)" } : undefined}
+        style={accent ? { color: `var(--trend-${accent})` } : undefined}
       >
         {value}
       </p>
