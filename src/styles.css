@@ -78,6 +78,19 @@
 
 :root {
   --radius: 0.625rem;
+  --widget-fg: oklch(0.97 0.005 250);
+  --widget-muted: oklch(0.68 0.012 250);
+  --widget-surface: oklch(0.24 0.015 260);
+  --widget-deep: oklch(0.15 0.012 260);
+  --widget-line: oklch(1 0 0 / 12%);
+  --heat-0: oklch(0.28 0.02 160);
+  --heat-1: oklch(0.45 0.09 158);
+  --heat-2: oklch(0.58 0.13 157);
+  --heat-3: oklch(0.71 0.17 156);
+  --heat-4: oklch(0.84 0.19 152);
+  --trend-up: oklch(0.78 0.18 154);
+  --trend-down: oklch(0.68 0.19 25);
+
   --background: oklch(1 0 0);
   --foreground: oklch(0.129 0.042 264.695);
   --card: oklch(1 0 0);
