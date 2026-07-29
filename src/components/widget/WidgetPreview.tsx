@@ -166,7 +166,7 @@ export function WidgetPreview({
                 className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
                 style={{ background: `color-mix(in oklab, ${pal.accent} 18%, transparent)`, color: pal.accent }}
               >
-                🔥 {st}d
+                <Flame className="size-2.5" strokeWidth={2.4} /> {st}d
               </span>
             </div>
             <Delta accent={pal.accent} />
@@ -214,7 +214,9 @@ export function WidgetPreview({
                 cel {settings.goal}/dzień
               </span>
               <Delta accent={pal.accent} />
-              <span className="text-widget-muted text-[9px]">🔥 seria {st} dni</span>
+              <span className="text-widget-muted flex items-center gap-1 text-[9px]">
+                <Flame className="size-2.5" strokeWidth={2.4} /> seria {st} dni
+              </span>
             </div>
           </div>
         )}

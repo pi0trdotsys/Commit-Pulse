@@ -15,7 +15,7 @@ export function NotificationMock({ settings }: { settings: WidgetSettings }) {
           className="grid size-4 place-items-center rounded-[5px] text-[9px]"
           style={{ background: pal.accent, color: "oklch(0.16 0.01 250)" }}
         >
-          ⌘
+          <GitCommitHorizontal className="size-3" strokeWidth={2.4} />
         </span>
         <span>Commit Pulse</span>
         <span>·</span>
