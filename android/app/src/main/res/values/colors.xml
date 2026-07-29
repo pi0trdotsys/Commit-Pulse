@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="widget_deep">#080B10</color>
+    <color name="widget_surface">#1B1F27</color>
+    <color name="heat_4">#4FED8A</color>
+</resources>
