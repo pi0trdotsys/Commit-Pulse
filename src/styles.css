@@ -19,6 +19,21 @@
  */
 
 @theme inline {
+  --font-display: "Barlow Condensed", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Work Sans", ui-sans-serif, system-ui, sans-serif;
+  --color-widget-fg: var(--widget-fg);
+  --color-widget-muted: var(--widget-muted);
+  --color-widget-surface: var(--widget-surface);
+  --color-widget-deep: var(--widget-deep);
+  --color-widget-line: var(--widget-line);
+  --color-heat-0: var(--heat-0);
+  --color-heat-1: var(--heat-1);
+  --color-heat-2: var(--heat-2);
+  --color-heat-3: var(--heat-3);
+  --color-heat-4: var(--heat-4);
+  --color-trend-up: var(--trend-up);
+  --color-trend-down: var(--trend-down);
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -63,6 +78,19 @@
 
 :root {
   --radius: 0.625rem;
+  --widget-fg: oklch(0.97 0.005 250);
+  --widget-muted: oklch(0.68 0.012 250);
+  --widget-surface: oklch(0.24 0.015 260);
+  --widget-deep: oklch(0.15 0.012 260);
+  --widget-line: oklch(1 0 0 / 12%);
+  --heat-0: oklch(0.28 0.02 160);
+  --heat-1: oklch(0.45 0.09 158);
+  --heat-2: oklch(0.58 0.13 157);
+  --heat-3: oklch(0.71 0.17 156);
+  --heat-4: oklch(0.84 0.19 152);
+  --trend-up: oklch(0.78 0.18 154);
+  --trend-down: oklch(0.68 0.19 25);
+
   --background: oklch(1 0 0);
   --foreground: oklch(0.129 0.042 264.695);
   --card: oklch(1 0 0);
