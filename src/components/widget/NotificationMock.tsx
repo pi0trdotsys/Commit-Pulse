@@ -1,3 +1,4 @@
+import { GitCommitHorizontal } from "lucide-react";
 import { HISTORY, PL_WEEKDAYS, lastN, sum, weekOverWeek } from "@/lib/mock-commits";
 import { PALETTES, type WidgetSettings } from "@/lib/widget-settings";
 import { HeatmapStrip } from "./WidgetPreview";
