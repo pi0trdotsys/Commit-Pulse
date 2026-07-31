@@ -4,8 +4,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -36,6 +38,8 @@ import com.commitpulse.app.data.Surface
 import com.commitpulse.app.data.WeekDelta
 import com.commitpulse.app.data.WidgetMode
 import com.commitpulse.app.data.WidgetSettings
+import com.commitpulse.app.data.asDateMap
+import com.commitpulse.app.data.buildContributionGridDates
 import com.commitpulse.app.data.lastN
 import com.commitpulse.app.data.level
 import com.commitpulse.app.data.maxCount
@@ -44,6 +48,8 @@ import com.commitpulse.app.data.today
 import com.commitpulse.app.data.weekOverWeek
 import com.commitpulse.app.ui.theme.PaletteColors
 import com.commitpulse.app.ui.theme.WidgetColors
+import java.time.LocalDate
+import kotlin.math.ceil
 import kotlin.math.max
 
 @Composable
@@ -142,7 +148,63 @@ private fun Delta(accent: Color, wow: WeekDelta, compact: Boolean = false) {
         Text(arrow, fontSize = 9.sp, color = color)
         Text(" ${wow.label}", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = color)
         if (!compact) {
-            Text(" vs ub. tydz.", fontSize = 10.sp, color = WidgetColors.muted)
+            Text(" vs poprz. 7 dni", fontSize = 10.sp, color = WidgetColors.muted)
+        }
+    }
+}
+
+/**
+ * Prawdziwa kalendarzowa siatka kontrybucji (7 wierszy dni tygodnia × N kolumn-tygodni),
+ * jak na github.com. Rozmiar komórki dopasowuje się do miejsca dostępnego w rodzicu
+ * ([BoxWithConstraints]) — ten sam algorytm co w prawdziwym widgecie (Glance), żeby
+ * podgląd w aplikacji wiarygodnie odzwierciedlał to, co wyląduje na ekranie głównym.
+ */
+@Composable
+fun ContributionGridCompose(
+    history: List<DayCommit>,
+    heat: List<Color>,
+    modifier: Modifier = Modifier,
+    maxDays: Int = Int.MAX_VALUE,
+) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val today = history.lastOrNull()?.date ?: LocalDate.now()
+        val countMap = history.asDateMap()
+        val maxVal = history.maxCount()
+
+        val minStride = 5.dp
+        val rows = (maxHeight / minStride).toInt().coerceIn(1, 7)
+        val strideFromHeight = maxHeight / rows
+
+        val gapRatio = 0.22f
+        val rawCell = strideFromHeight * (1f - gapRatio)
+        val cell = if (rawCell < 2.dp) 2.dp else rawCell
+        val gap = if (rawCell < 2.dp) 1.dp else strideFromHeight * gapRatio
+        val stride = cell + gap
+
+        val columnsFit = (maxWidth / stride).toInt()
+        val maxColumnsForDays = ceil(maxDays.toDouble() / rows).toInt().coerceAtLeast(4)
+        val columns = columnsFit.coerceIn(4, maxColumnsForDays)
+
+        val grid = buildContributionGridDates(today, columns, rows)
+
+        Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+            grid.forEach { rowDates ->
+                Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                    rowDates.forEach { date ->
+                        if (date == null) {
+                            Box(modifier = Modifier.size(cell))
+                        } else {
+                            val count = countMap[date] ?: 0
+                            Box(
+                                modifier = Modifier
+                                    .size(cell)
+                                    .clip(RoundedCornerShape(cell / 4))
+                                    .background(heat[level(count, maxVal)]),
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -173,16 +235,20 @@ fun WidgetPreview(
             .padding(12.dp),
     ) {
         when (settings.mode) {
-            WidgetMode.HEATMAP -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-                Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text(today.toString(), fontSize = 30.sp, fontWeight = FontWeight.Bold, color = WidgetColors.fg)
-                        Text(" dziś", fontSize = 9.sp, color = WidgetColors.muted)
+            WidgetMode.HEATMAP -> Column(Modifier.fillMaxSize()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(today.toString(), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = WidgetColors.fg)
+                        Text(" dziś", fontSize = 8.sp, color = WidgetColors.muted)
+                        Spacer(Modifier.width(7.dp))
+                        Delta(pal.accent, wow, compact = true)
                     }
                     StreakBadge(st, pal.accent)
                 }
-                Delta(pal.accent, wow)
-                HeatmapStrip(history.lastN(14), pal.heat, 9.5.dp, 2.5.dp)
+                Spacer(Modifier.height(5.dp))
+                Box(Modifier.fillMaxWidth().weight(1f)) {
+                    ContributionGridCompose(history, pal.heat)
+                }
             }
 
             WidgetMode.SPARKLINE -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
@@ -222,12 +288,15 @@ fun WidgetPreview(
                 }
             }
 
-            WidgetMode.HEATMAP_30 -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
+            WidgetMode.HEATMAP_30 -> Column(Modifier.fillMaxSize()) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("30 DNI", fontSize = 9.sp, color = WidgetColors.muted)
                     Delta(pal.accent, history.lastN(rangeDays).weekOverWeek(), compact = true)
                 }
-                HeatmapStrip(history.lastN(rangeDays), pal.heat, 4.4.dp, 1.6.dp, 1.dp)
+                Spacer(Modifier.height(5.dp))
+                Box(Modifier.fillMaxWidth().weight(1f)) {
+                    ContributionGridCompose(history.lastN(rangeDays), pal.heat, maxDays = 30)
+                }
             }
         }
     }

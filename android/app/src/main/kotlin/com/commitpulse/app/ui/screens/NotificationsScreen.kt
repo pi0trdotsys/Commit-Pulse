@@ -108,11 +108,25 @@ fun NotificationsScreen(
                         }
                         Switch(checked = settings.alertGoal, onCheckedChange = { v -> onUpdate { it.copy(alertGoal = v) } })
                     }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column {
+                            Text("Motywujące kamienie milowe", fontSize = 14.sp)
+                            Text("Nowe rekordy serii (7, 14, 30 dni…) i rekordy dnia.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                        }
+                        Switch(checked = settings.alertMilestones, onCheckedChange = { v -> onUpdate { it.copy(alertMilestones = v) } })
+                    }
                 }
             }
         }
 
-        Section(title = "Ostatnie 14 dni", hint = "Dane, na których liczona jest delta tydzień/tydzień.") {
+        Section(
+            title = "Ostatnie 14 dni",
+            hint = "Dynamiczne porównanie: ostatnie 7 dni vs poprzednie 7 — aktualizuje się codziennie, nie czeka na poniedziałek.",
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -123,8 +137,8 @@ fun NotificationsScreen(
             ) {
                 HeatmapStrip(history.lastN(14), pal.heat, 20.dp, 5.dp, 4.dp)
                 Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                    Text("Ten tydzień: ${wow.thisWeek}", fontSize = 12.sp, color = com.commitpulse.app.ui.theme.WidgetColors.fg)
-                    Text("Poprzedni: ${wow.lastWeek}", fontSize = 12.sp, color = com.commitpulse.app.ui.theme.WidgetColors.fg)
+                    Text("Ostatnie 7 dni: ${wow.thisWeek}", fontSize = 12.sp, color = com.commitpulse.app.ui.theme.WidgetColors.fg)
+                    Text("Wcześniejsze 7 dni: ${wow.lastWeek}", fontSize = 12.sp, color = com.commitpulse.app.ui.theme.WidgetColors.fg)
                     Text(wow.label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = pal.accent)
                 }
             }

@@ -21,6 +21,11 @@ object NotificationHelper {
     private const val NOTIF_ID_DIGEST = 1001
     private const val NOTIF_ID_STREAK = 1002
     private const val NOTIF_ID_GOAL = 1003
+    private const val NOTIF_ID_MILESTONE = 1004
+    private const val NOTIF_ID_PERSONAL_BEST = 1005
+
+    /** Kamienie milowe serii, dla których warto pogratulować. */
+    val STREAK_MILESTONES = listOf(3, 7, 14, 21, 30, 50, 75, 100, 150, 200, 365)
 
     fun ensureChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
@@ -68,6 +73,40 @@ object NotificationHelper {
             .build()
 
         NotificationManagerCompat.from(context).notifyIfPermitted(NOTIF_ID_STREAK, notification)
+    }
+
+    /** Motywujące powiadomienie przy przekroczeniu kolejnego kamienia milowego serii commitów. */
+    fun showStreakMilestone(context: Context, streakDays: Int) {
+        val body = when {
+            streakDays < 14 -> "Rozkręcasz się! $streakDays dni z rzędu — złap tempo i jedź dalej."
+            streakDays < 50 -> "$streakDays dni bez przerwy. To już nawyk, nie przypadek — świetna robota."
+            else -> "$streakDays dni serii! Niewielu tu dociera — to naprawdę imponujący wynik."
+        }
+        val notification = NotificationCompat.Builder(context, CHANNEL_ALERTS)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("Seria $streakDays dni! 🔥")
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(contentIntent(context))
+            .setAutoCancel(true)
+            .build()
+
+        NotificationManagerCompat.from(context).notifyIfPermitted(NOTIF_ID_MILESTONE, notification)
+    }
+
+    /** Motywujące powiadomienie, gdy dzisiejsza liczba commitów pobije dotychczasowy rekord. */
+    fun showPersonalBest(context: Context, count: Int) {
+        val text = "Nowy rekord dnia: $count commitów. Najlepszy wynik w historii tego widgetu!"
+        val notification = NotificationCompat.Builder(context, CHANNEL_ALERTS)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("Nowy rekord dnia 🚀")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(contentIntent(context))
+            .setAutoCancel(true)
+            .build()
+
+        NotificationManagerCompat.from(context).notifyIfPermitted(NOTIF_ID_PERSONAL_BEST, notification)
     }
 
     fun showGoalReached(context: Context, goal: Int) {

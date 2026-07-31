@@ -58,8 +58,12 @@ class GitHubRepository(context: Context) {
 
     fun signOut() = tokenStore.clearToken()
 
-    /** Waliduje token i pobiera ~[days] dni historii kontrybucji (max 1 rok wg limitu GraphQL). */
-    suspend fun fetchHistory(days: Int = 100, token: String? = null): GitHubResult<Pair<GitHubAccount, List<DayCommit>>> =
+    /**
+     * Waliduje token i pobiera ~[days] dni historii kontrybucji (max 1 rok wg limitu GraphQL).
+     * 140 dni (20 tygodni) daje wystarczająco danych, by responsywna siatka heatmapy w widgecie
+     * mogła pokazać wiele tygodni nawet po powiększeniu widgetu na ekranie głównym.
+     */
+    suspend fun fetchHistory(days: Int = 140, token: String? = null): GitHubResult<Pair<GitHubAccount, List<DayCommit>>> =
         withContext(Dispatchers.IO) {
             val effectiveToken = token ?: tokenStore.getToken()
             if (effectiveToken.isNullOrBlank()) {

@@ -44,6 +44,13 @@ fun List<DayCommit>.sum(): Int = sumOf { it.count }
 
 fun List<DayCommit>.maxCount(): Int = maxOfOrNull { it.count } ?: 0
 
+/**
+ * Rolling 7-day comparison: sum of the last 7 days vs. the 7 days before that.
+ * Deliberately NOT a Mon-Sun calendar week — a calendar bucket resets abruptly every
+ * Monday (e.g. "0 commits this week" on a Monday morning is misleading), while a
+ * trailing window updates smoothly every day and always reflects the last full week
+ * of work regardless of which weekday it is "today". Better fit for a live widget.
+ */
 fun List<DayCommit>.weekOverWeek(): WeekDelta {
     val thisWeek = lastN(7).sum()
     val lastWeek = if (size >= 14) subList(size - 14, size - 7).sum() else 0
@@ -71,3 +78,24 @@ fun level(count: Int, max: Int): Int {
         else -> 4
     }
 }
+
+/**
+ * Kalendarzowa siatka kontrybucji w stylu GitHuba: [rows] wierszy dni tygodnia
+ * (0 = niedziela u góry, 6 = sobota u dołu — jak na github.com) na [columns] kolumn-tygodni,
+ * od najstarszej kolumny (lewo) do najnowszej (prawo). Ostatnia kolumna jest wyrównana
+ * tak, że "dzisiaj" wypada w prawidłowym wierszu dnia tygodnia; komórki "z przyszłości"
+ * w bieżącym tygodniu mają wartość null i nie powinny być rysowane.
+ */
+fun buildContributionGridDates(today: LocalDate, columns: Int, rows: Int = 7): List<List<LocalDate?>> {
+    val todayRow = today.dayOfWeek.value % 7 // MONDAY=1..SUNDAY=7 -> Nd=0 .. So=6
+    return (0 until rows).map { row ->
+        (0 until columns).map { col ->
+            val weeksAgo = (columns - 1 - col).toLong()
+            val daysAgo = weeksAgo * 7 + (todayRow - row)
+            val date = today.minusDays(daysAgo)
+            if (date.isAfter(today)) null else date
+        }
+    }
+}
+
+fun List<DayCommit>.asDateMap(): Map<LocalDate, Int> = associate { it.date to it.count }

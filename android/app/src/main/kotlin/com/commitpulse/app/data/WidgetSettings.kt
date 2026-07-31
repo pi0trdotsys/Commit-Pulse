@@ -25,6 +25,7 @@ data class WidgetSettings(
     val digestHour: String = "09:00",
     val alertStreak: Boolean = true,
     val alertGoal: Boolean = false,
+    val alertMilestones: Boolean = true,
 )
 
 data class ModeInfo(val id: WidgetMode, val nameRes: String, val descRes: String)

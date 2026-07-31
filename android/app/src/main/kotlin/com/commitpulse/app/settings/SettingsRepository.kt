@@ -39,12 +39,16 @@ class SettingsRepository(private val context: Context) {
         val DIGEST_HOUR = stringPreferencesKey("digest_hour")
         val ALERT_STREAK = booleanPreferencesKey("alert_streak")
         val ALERT_GOAL = booleanPreferencesKey("alert_goal")
+        val ALERT_MILESTONES = booleanPreferencesKey("alert_milestones")
 
         val HISTORY_JSON = stringPreferencesKey("history_json")
         val ACCOUNT_LOGIN = stringPreferencesKey("account_login")
         val ACCOUNT_AVATAR = stringPreferencesKey("account_avatar")
         val LAST_SYNC_EPOCH = stringPreferencesKey("last_sync_epoch")
         val LAST_ERROR = stringPreferencesKey("last_error")
+
+        val BEST_STREAK_SEEN = intPreferencesKey("best_streak_seen")
+        val BEST_DAY_SEEN = intPreferencesKey("best_day_seen")
     }
 
     val settingsFlow: Flow<WidgetSettings> = context.dataStore.data.map { prefs ->
@@ -61,6 +65,7 @@ class SettingsRepository(private val context: Context) {
             digestHour = prefs[Keys.DIGEST_HOUR] ?: "09:00",
             alertStreak = prefs[Keys.ALERT_STREAK] ?: true,
             alertGoal = prefs[Keys.ALERT_GOAL] ?: false,
+            alertMilestones = prefs[Keys.ALERT_MILESTONES] ?: true,
         )
     }
 
@@ -93,6 +98,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.DIGEST_HOUR] = next.digestHour
             prefs[Keys.ALERT_STREAK] = next.alertStreak
             prefs[Keys.ALERT_GOAL] = next.alertGoal
+            prefs[Keys.ALERT_MILESTONES] = next.alertMilestones
         }
     }
 
@@ -118,6 +124,20 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun saveError(message: String) {
         context.dataStore.edit { prefs -> prefs[Keys.LAST_ERROR] = message }
+    }
+
+    /** Najdłuższa seria, dla której już wysłano powiadomienie o kamieniu milowym — chroni przed spamem. */
+    suspend fun bestStreakSeen(): Int = context.dataStore.data.first()[Keys.BEST_STREAK_SEEN] ?: 0
+
+    suspend fun setBestStreakSeen(value: Int) {
+        context.dataStore.edit { prefs -> prefs[Keys.BEST_STREAK_SEEN] = value }
+    }
+
+    /** Najlepszy dzienny wynik, dla którego już wysłano powiadomienie o rekordzie. */
+    suspend fun bestDaySeen(): Int = context.dataStore.data.first()[Keys.BEST_DAY_SEEN] ?: 0
+
+    suspend fun setBestDaySeen(value: Int) {
+        context.dataStore.edit { prefs -> prefs[Keys.BEST_DAY_SEEN] = value }
     }
 
     suspend fun clearAll() {
