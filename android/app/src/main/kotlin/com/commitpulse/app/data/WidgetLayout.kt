@@ -75,6 +75,9 @@ private fun layoutFor(
  * [fitAllDays] = true: [maxDays] ma się zmieścić w całości (np. tryb 30 dni), nawet kosztem
  * mniejszych komórek (do [minStrideDp]). false: [maxDays] to tylko górny limit dostępnej
  * historii — komórki są tak duże, jak pozwala krótszy bok, a tygodni tyle, ile wejdzie.
+ *
+ * [fixedWeeks] > 0: użytkownik wybrał konkretną liczbę tygodni — tyle kolumn/wierszy (o ile
+ * zmieszczą się przy [minStrideDp]), w orientacji dającej większe kwadraty.
  */
 fun computeGridLayout(
     widthDp: Float,
@@ -82,17 +85,27 @@ fun computeGridLayout(
     maxDays: Int,
     today: LocalDate,
     fitAllDays: Boolean = false,
+    fixedWeeks: Int = 0,
     gapRatio: Float = 0.2f,
     minStrideDp: Float = 5f,
     maxStrideDp: Float = 22f,
 ): GridLayout {
     val days = maxDays.coerceAtLeast(1)
     fun build(orientation: GridOrientation, longDp: Float, shortDp: Float) = layoutFor(
-        orientation, longDp, shortDp, weeksToCover(days, today, orientation.firstDayOfWeek),
-        gapRatio, minStrideDp, maxStrideDp, fitAllDays,
+        orientation, longDp, shortDp,
+        if (fixedWeeks > 0) fixedWeeks else weeksToCover(days, today, orientation.firstDayOfWeek),
+        gapRatio, minStrideDp, maxStrideDp, fitAllDays || fixedWeeks > 0,
     )
     val columns = build(GridOrientation.WEEKS_AS_COLUMNS, widthDp, heightDp)
     val rows = build(GridOrientation.WEEKS_AS_ROWS, heightDp, widthDp)
+
+    if (fixedWeeks > 0) {
+        return when {
+            rows.weeks != columns.weeks -> if (rows.weeks > columns.weeks) rows else columns
+            rows.strideDp > columns.strideDp -> rows
+            else -> columns
+        }
+    }
 
     val daysColumns = min(columns.weeks * DAYS_PER_WEEK, days)
     val daysRows = min(rows.weeks * DAYS_PER_WEEK, days)
@@ -126,9 +139,6 @@ fun estimateTextWidthDp(text: String, sizeSp: Float, fontScale: Float = 1f): Flo
 
 /** Wysokość jednej linii tekstu w dp. */
 fun lineHeightDp(sizeSp: Float, fontScale: Float = 1f): Float = sizeSp * fontScale * 1.3f
-
-/** Zwarta etykieta zmiany tydzień/tydzień: kierunek pokazuje strzałka, więc bez znaku "+". */
-fun WeekDelta.compactLabel(): String = "${kotlin.math.abs(percent)}%"
 
 enum class HeaderLayout { ONE_ROW, TWO_ROWS, THREE_ROWS }
 

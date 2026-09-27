@@ -156,12 +156,82 @@ class WidgetLayoutTest {
         assertEquals(HeaderLayout.THREE_ROWS, chooseHeaderLayout(48f, 30f, 30f, 30f))
     }
 
-    @Test
-    fun `compact delta label drops the sign because the arrow shows direction`() {
-        val up = WeekDelta(thisWeek = 34, lastWeek = 6, percent = 467, direction = WeekDelta.Direction.UP, label = "+467%")
-        val down = WeekDelta(thisWeek = 5, lastWeek = 10, percent = -50, direction = WeekDelta.Direction.DOWN, label = "-50%")
+    // --- Wybrana liczba tygodni ---
 
-        assertEquals("467%", up.compactLabel())
-        assertEquals("50%", down.compactLabel())
+    @Test
+    fun `fixed weeks shows exactly that many weeks when they fit`() {
+        for (weeks in listOf(4, 8, 12, 16)) {
+            val layout = computeGridLayout(160f, 56f, maxDays = 364, today = sunday, fixedWeeks = weeks)
+            assertEquals(weeks, layout.weeks)
+        }
+    }
+
+    @Test
+    fun `fewer fixed weeks give bigger squares`() {
+        val four = computeGridLayout(160f, 56f, maxDays = 364, today = sunday, fixedWeeks = 4)
+        val sixteen = computeGridLayout(160f, 56f, maxDays = 364, today = sunday, fixedWeeks = 16)
+        assertTrue(four.strideDp > sixteen.strideDp)
+    }
+
+    @Test
+    fun `fixed weeks picks the orientation with bigger squares`() {
+        // Wąski, wysoki widget (48.7x104dp):
+        // 4 tygodnie jako kolumny -> krok min(104/6.8, 48.7/3.8) = 12.8dp,
+        // jako wiersze -> krok 48.7/6.8 = 7.2dp. Wygrywają większe kwadraty.
+        val few = computeGridLayout(48.7f, 104f, maxDays = 364, today = sunday, fixedWeeks = 4)
+        assertEquals(4, few.weeks)
+        assertEquals(GridOrientation.WEEKS_AS_COLUMNS, few.orientation)
+        assertEquals(12.8f, few.strideDp, 0.1f)
+
+        // 12 tygodni jako kolumny ledwo by weszło (krok 4dp), jako wiersze krok 7.2dp.
+        val many = computeGridLayout(48.7f, 104f, maxDays = 364, today = sunday, fixedWeeks = 12)
+        assertEquals(12, many.weeks)
+        assertEquals(GridOrientation.WEEKS_AS_ROWS, many.orientation)
+    }
+
+    @Test
+    fun `too many fixed weeks for the space still fits instead of overflowing`() {
+        val layout = computeGridLayout(48.7f, 104f, maxDays = 364, today = sunday, fixedWeeks = 52)
+        assertTrue(layout.weeks in 1..52)
+        assertTrue(layout.widthDp <= 48.7f + 0.01f)
+        assertTrue(layout.heightDp <= 104f + 0.01f)
+    }
+
+    @Test
+    fun `fixed weeks always fit for every widget size`() {
+        for (weeks in GRID_WEEK_OPTIONS.filter { it > 0 }) {
+            for (w in 20..420 step 20) {
+                for (h in 20..420 step 20) {
+                    val layout = computeGridLayout(w.toFloat(), h.toFloat(), 364, sunday, fixedWeeks = weeks)
+                    assertTrue(layout.widthDp <= w + 0.01f && layout.heightDp <= h + 0.01f)
+                }
+            }
+        }
+    }
+
+    // --- Daty i podsumowanie tygodnia ---
+
+    @Test
+    fun `date range within a month shares the month name`() {
+        assertEquals("21–27 wrz", formatRange(LocalDate.of(2026, 9, 21), LocalDate.of(2026, 9, 27)))
+    }
+
+    @Test
+    fun `date range across months names both months`() {
+        assertEquals("29 wrz – 5 paź", formatRange(LocalDate.of(2026, 9, 29), LocalDate.of(2026, 10, 5)))
+    }
+
+    @Test
+    fun `weekly digest text states the real numbers`() {
+        val week = CalendarWeekSummary(LocalDate.of(2026, 9, 21), Trend(current = 34, previous = 6))
+        val text = weeklyDigestText(week)
+        assertEquals("Miniony tydzień (21–27 wrz): 34 kontrybucje", text.headline)
+        assertEquals("+28 vs tydzień wcześniej (6)", text.comparison)
+    }
+
+    @Test
+    fun `weekly digest text for an unchanged week`() {
+        val text = weeklyDigestText(CalendarWeekSummary(LocalDate.of(2026, 9, 21), Trend(5, 5)))
+        assertEquals("tyle samo co tydzień wcześniej (5)", text.comparison)
     }
 }

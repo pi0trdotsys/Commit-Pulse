@@ -5,13 +5,14 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.glance.appwidget.updateAll
 import com.commitpulse.app.commitPulseApp
+import com.commitpulse.app.data.CommitSummary
 import com.commitpulse.app.data.DayCommit
 import com.commitpulse.app.data.maxCount
-import com.commitpulse.app.data.streak
-import com.commitpulse.app.data.today
+import com.commitpulse.app.data.summarize
 import com.commitpulse.app.github.GitHubResult
 import com.commitpulse.app.settings.SettingsRepository
 import com.commitpulse.app.widget.CommitPulseWidget
+import java.time.LocalDate
 
 class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
@@ -28,12 +29,13 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
                 CommitPulseWidget().updateAll(applicationContext)
 
                 val settings = settingsRepo.currentSettings()
-                if (settings.alertGoal && history.today() >= settings.goal && settings.goal > 0) {
+                val summary = summarize(history, LocalDate.now())
+                if (settings.alertGoal && summary.todayCount >= settings.goal && settings.goal > 0) {
                     NotificationHelper.ensureChannels(applicationContext)
                     NotificationHelper.showGoalReached(applicationContext, settings.goal)
                 }
                 if (settings.alertMilestones) {
-                    celebrateMilestones(applicationContext, settingsRepo, history)
+                    celebrateMilestones(applicationContext, settingsRepo, history, summary)
                 }
                 Result.success()
             }
@@ -49,8 +51,9 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
         context: Context,
         settingsRepo: SettingsRepository,
         history: List<DayCommit>,
+        summary: CommitSummary,
     ) {
-        val currentStreak = history.streak()
+        val currentStreak = summary.streak
         val bestStreakSeen = settingsRepo.bestStreakSeen()
         val newMilestone = NotificationHelper.STREAK_MILESTONES
             .filter { it in (bestStreakSeen + 1)..currentStreak }
@@ -61,8 +64,8 @@ class RefreshWorker(appContext: Context, params: WorkerParameters) : CoroutineWo
             settingsRepo.setBestStreakSeen(currentStreak)
         }
 
-        val todayCount = history.today()
-        val previousBest = history.dropLast(1).maxCount()
+        val todayCount = summary.todayCount
+        val previousBest = history.filter { it.date.isBefore(summary.today) }.maxCount()
         val bestDaySeen = settingsRepo.bestDaySeen()
         if (todayCount > 0 && todayCount > previousBest && todayCount > bestDaySeen) {
             NotificationHelper.ensureChannels(context)

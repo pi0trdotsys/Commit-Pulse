@@ -20,16 +20,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
+import com.commitpulse.app.data.CommitSummary
 import com.commitpulse.app.data.DayCommit
 import com.commitpulse.app.data.WidgetSettings
 import com.commitpulse.app.data.lastN
-import com.commitpulse.app.data.weekOverWeek
 import com.commitpulse.app.ui.components.Chip
+import com.commitpulse.app.ui.components.ChipRow
 import com.commitpulse.app.ui.components.HeatmapStrip
 import com.commitpulse.app.ui.components.NotificationMock
 import com.commitpulse.app.ui.components.PhoneFrame
 import com.commitpulse.app.ui.components.Section
-import com.commitpulse.app.ui.theme.paletteFor
+import com.commitpulse.app.ui.theme.widgetTheme
 
 private val DAY_LABELS = listOf("Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd")
 
@@ -37,10 +39,10 @@ private val DAY_LABELS = listOf("Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd")
 fun NotificationsScreen(
     settings: WidgetSettings,
     history: List<DayCommit>,
+    summary: CommitSummary,
     onUpdate: ((WidgetSettings) -> WidgetSettings) -> Unit,
 ) {
-    val pal = paletteFor(settings)
-    val wow = history.weekOverWeek()
+    val pal = widgetTheme(LocalContext.current, settings).palette
 
     Column(
         modifier = Modifier.padding(20.dp),
@@ -50,7 +52,7 @@ fun NotificationsScreen(
             NotificationMock(history = history, pal = pal, modifier = Modifier.width(230.dp))
         }
 
-        Section(title = "Podsumowanie tygodnia", hint = "Wysyłane po zamknięciu minionego tygodnia.") {
+        Section(title = "Podsumowanie tygodnia", hint = "Miniony tydzień Pn–Nd porównany z tygodniem wcześniej.") {
             Card {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -64,7 +66,7 @@ fun NotificationsScreen(
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Dzień", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ChipRow {
                     DAY_LABELS.forEachIndexed { i, label ->
                         Chip(settings.digestDay == i + 1, { onUpdate { it.copy(digestDay = i + 1) } }, label)
                     }
@@ -93,7 +95,7 @@ fun NotificationsScreen(
                     ) {
                         Column {
                             Text("Seria zagrożona", fontSize = 14.sp)
-                            Text("Ping o 20:00, jeśli dziś brak commita.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                            Text("Ping o 20:00, jeśli masz serię, a dziś jeszcze brak kontrybucji.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                         }
                         Switch(checked = settings.alertStreak, onCheckedChange = { v -> onUpdate { it.copy(alertStreak = v) } })
                     }
@@ -137,9 +139,9 @@ fun NotificationsScreen(
             ) {
                 HeatmapStrip(history.lastN(14), pal.heat, 20.dp, 5.dp, 4.dp)
                 Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                    Text("Ostatnie 7 dni: ${wow.thisWeek}", fontSize = 12.sp, color = com.commitpulse.app.ui.theme.WidgetColors.fg)
-                    Text("Wcześniejsze 7 dni: ${wow.lastWeek}", fontSize = 12.sp, color = com.commitpulse.app.ui.theme.WidgetColors.fg)
-                    Text(wow.label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = pal.accent)
+                    Text("Ostatnie 7 dni: ${summary.last7}", fontSize = 12.sp, color = com.commitpulse.app.ui.theme.WidgetColors.fg)
+                    Text("Wcześniejsze 7 dni: ${summary.previous7}", fontSize = 12.sp, color = com.commitpulse.app.ui.theme.WidgetColors.fg)
+                    Text(summary.trend.diffLabel, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = pal.accent)
                 }
             }
         }

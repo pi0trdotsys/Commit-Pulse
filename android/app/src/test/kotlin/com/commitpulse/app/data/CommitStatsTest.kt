@@ -1,20 +1,22 @@
 package com.commitpulse.app.data
 
+import java.time.DayOfWeek
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-private val BASE_DATE: LocalDate = LocalDate.of(2024, 1, 1)
+/** Niedziela 27.09.2026 — „dzisiaj” we wszystkich testach. */
+private val TODAY: LocalDate = LocalDate.of(2026, 9, 27)
 
-/** Buduje historię z listy dziennych liczników, zaczynając [BASE_DATE] dnia i idąc kolejno naprzód. */
-private fun history(vararg counts: Int): List<DayCommit> =
-    counts.mapIndexed { i, c -> DayCommit(BASE_DATE.plusDays(i.toLong()), c) }
+/** Historia kończąca się dzisiaj: ostatni licznik = dzisiaj, przedostatni = wczoraj itd. */
+private fun history(vararg counts: Int, endingOn: LocalDate = TODAY): List<DayCommit> =
+    counts.mapIndexed { i, c -> DayCommit(endingOn.minusDays((counts.size - 1 - i).toLong()), c) }
 
 class CommitStatsTest {
 
-    // --- lastN ---
+    // --- lastN / sum / maxCount / sumBetween ---
 
     @Test
     fun `lastN returns whole list when shorter than n`() {
@@ -24,137 +26,199 @@ class CommitStatsTest {
 
     @Test
     fun `lastN returns trailing n elements`() {
-        val h = history(1, 2, 3, 4, 5)
-        assertEquals(listOf(3, 4, 5), h.lastN(3).map { it.count })
+        assertEquals(listOf(3, 4, 5), history(1, 2, 3, 4, 5).lastN(3).map { it.count })
     }
 
     @Test
-    fun `lastN of empty list is empty`() {
-        assertTrue(emptyList<DayCommit>().lastN(7).isEmpty())
-    }
-
-    // --- today ---
-
-    @Test
-    fun `today returns count of last day`() {
-        val h = history(3, 7, 2)
-        assertEquals(2, h.today())
-    }
-
-    @Test
-    fun `today of empty history is zero`() {
-        assertEquals(0, emptyList<DayCommit>().today())
-    }
-
-    // --- streak ---
-
-    @Test
-    fun `streak counts trailing consecutive days with commits`() {
-        val h = history(1, 2, 0, 3, 4)
-        assertEquals(2, h.streak())
-    }
-
-    @Test
-    fun `streak is zero when today has no commits`() {
-        val h = history(5, 5, 0)
-        assertEquals(0, h.streak())
-    }
-
-    @Test
-    fun `streak spans the whole history when every day has commits`() {
-        val h = history(1, 1, 1, 1)
-        assertEquals(4, h.streak())
-    }
-
-    @Test
-    fun `streak of empty history is zero`() {
-        assertEquals(0, emptyList<DayCommit>().streak())
-    }
-
-    // --- sum / maxCount ---
-
-    @Test
-    fun `sum adds every day's count`() {
-        val h = history(1, 2, 3, 4)
-        assertEquals(10, h.sum())
-    }
-
-    @Test
-    fun `sum of empty history is zero`() {
+    fun `sum adds every day's count and is zero for empty history`() {
+        assertEquals(10, history(1, 2, 3, 4).sum())
         assertEquals(0, emptyList<DayCommit>().sum())
     }
 
     @Test
-    fun `maxCount finds the busiest day`() {
-        val h = history(1, 9, 3, 0)
-        assertEquals(9, h.maxCount())
-    }
-
-    @Test
-    fun `maxCount of empty history is zero`() {
+    fun `maxCount finds the busiest day and is zero for empty history`() {
+        assertEquals(9, history(1, 9, 3, 0).maxCount())
         assertEquals(0, emptyList<DayCommit>().maxCount())
     }
 
-    // --- weekOverWeek ---
+    @Test
+    fun `sumBetween includes both ends and ignores days outside the range`() {
+        val h = history(1, 2, 3, 4, 5) // 23..27 wrz
+        assertEquals(2 + 3 + 4, h.sumBetween(TODAY.minusDays(3), TODAY.minusDays(1)))
+    }
+
+    // --- summarize: dzisiaj ---
 
     @Test
-    fun `weekOverWeek treats a short history as entirely 'this week' with no comparison`() {
-        val h = history(1, 1, 1) // < 7 days
-        val wow = h.weekOverWeek()
-        assertEquals(3, wow.thisWeek)
-        assertEquals(0, wow.lastWeek)
-        assertEquals(100, wow.percent)
-        assertEquals(WeekDelta.Direction.UP, wow.direction)
-        assertEquals("+100%", wow.label)
+    fun `today count is the count for today's date`() {
+        assertEquals(2, summarize(history(3, 7, 2), TODAY).todayCount)
     }
 
     @Test
-    fun `weekOverWeek is flat with no sign when both weeks are empty`() {
-        val h = history(*IntArray(14))
-        val wow = h.weekOverWeek()
-        assertEquals(0, wow.thisWeek)
-        assertEquals(0, wow.lastWeek)
-        assertEquals(0, wow.percent)
-        assertEquals(WeekDelta.Direction.FLAT, wow.direction)
-        assertEquals("0%", wow.label)
+    fun `today count is zero when the last sync was on an earlier day`() {
+        // Dane kończą się przedwczoraj — nie wolno pokazać przedwczorajszej liczby jako „dziś”.
+        val stale = history(5, 9, endingOn = TODAY.minusDays(2))
+        assertEquals(0, summarize(stale, TODAY).todayCount)
     }
 
     @Test
-    fun `weekOverWeek reports an upward trend with a plus sign`() {
-        // previous 7 days sum to 10, last 7 days sum to 14 -> +40%
-        val h = history(2, 1, 2, 1, 2, 1, 1, /* =10 */ 2, 2, 2, 2, 2, 2, 2 /* =14 */)
-        val wow = h.weekOverWeek()
-        assertEquals(10, wow.lastWeek)
-        assertEquals(14, wow.thisWeek)
-        assertEquals(40, wow.percent)
-        assertEquals(WeekDelta.Direction.UP, wow.direction)
-        assertEquals("+40%", wow.label)
+    fun `today count of empty history is zero`() {
+        assertEquals(0, summarize(emptyList(), TODAY).todayCount)
+    }
+
+    // --- summarize: seria ---
+
+    @Test
+    fun `streak counts consecutive active days ending today`() {
+        val s = summarize(history(1, 2, 0, 3, 4), TODAY)
+        assertEquals(2, s.streak)
+        assertEquals(TODAY.minusDays(1), s.streakStart)
     }
 
     @Test
-    fun `weekOverWeek reports a downward trend with a minus sign`() {
-        // previous 7 days sum to 10, last 7 days sum to 5 -> -50%
-        val h = history(2, 1, 2, 1, 2, 1, 1, /* =10 */ 1, 1, 1, 1, 1, 0, 0 /* =5 */)
-        val wow = h.weekOverWeek()
-        assertEquals(10, wow.lastWeek)
-        assertEquals(5, wow.thisWeek)
-        assertEquals(-50, wow.percent)
-        assertEquals(WeekDelta.Direction.DOWN, wow.direction)
-        assertEquals("-50%", wow.label)
+    fun `streak is not broken by today having no contributions yet`() {
+        // Rano, przed pierwszym commitem: seria z poprzednich dni wciąż trwa.
+        val s = summarize(history(1, 1, 1, 0), TODAY)
+        assertEquals(3, s.streak)
+        assertEquals(TODAY.minusDays(3), s.streakStart)
     }
 
     @Test
-    fun `weekOverWeek treats a plus or minus one percent change as flat`() {
-        // previous 7 days sum to 100, last 7 to 101 -> +1% is still FLAT (not UP)
-        val h = history(
-            15, 14, 14, 14, 14, 14, 15, // = 100
-            15, 15, 14, 14, 14, 14, 15, // = 101
+    fun `streak is zero when neither today nor yesterday had contributions`() {
+        val s = summarize(history(5, 5, 0, 0), TODAY)
+        assertEquals(0, s.streak)
+        assertNull(s.streakStart)
+    }
+
+    @Test
+    fun `streak stops at a missing day in the data`() {
+        val gap = listOf(
+            DayCommit(TODAY.minusDays(3), 4),
+            DayCommit(TODAY.minusDays(1), 2),
+            DayCommit(TODAY, 1),
         )
-        val wow = h.weekOverWeek()
-        assertEquals(100, wow.lastWeek)
-        assertEquals(101, wow.thisWeek)
-        assertEquals(1, wow.percent)
-        assertEquals(WeekDelta.Direction.FLAT, wow.direction)
+        assertEquals(2, summarize(gap, TODAY).streak)
+    }
+
+    // --- summarize: okna 7-dniowe i trend ---
+
+    @Test
+    fun `last 7 and previous 7 are rolling windows by date`() {
+        val s = summarize(history(2, 1, 2, 1, 2, 1, 1, /* =10 */ 2, 2, 2, 2, 2, 2, 2 /* =14 */), TODAY)
+        assertEquals(14, s.last7)
+        assertEquals(10, s.previous7)
+        assertEquals(TODAY.minusDays(6), s.last7From)
+        assertEquals(TODAY.minusDays(13), s.previous7From)
+        assertEquals(TODAY.minusDays(7), s.previous7To)
+    }
+
+    @Test
+    fun `windows use dates so gaps in the data do not shift the comparison`() {
+        // Tylko dwa wpisy: dzisiaj (5) i 10 dni temu (3). Indeksowo „poprzedni tydzień” nie istnieje.
+        val sparse = listOf(DayCommit(TODAY.minusDays(10), 3), DayCommit(TODAY, 5))
+        val s = summarize(sparse, TODAY)
+        assertEquals(5, s.last7)
+        assertEquals(3, s.previous7)
+    }
+
+    @Test
+    fun `a stale sync does not count old days as this week`() {
+        val stale = history(*IntArray(14) { 1 }, endingOn = TODAY.minusDays(7))
+        val s = summarize(stale, TODAY)
+        assertEquals(0, s.last7)
+        assertEquals(7, s.previous7)
+    }
+
+    @Test
+    fun `trend reports the real numbers behind a huge percentage`() {
+        // Scenariusz z widgetu: 6 → 35 to +483%, ale różnica +29 mówi, co się naprawdę stało.
+        val s = summarize(history(1, 1, 1, 1, 1, 1, 0, /* =6 */ 5, 5, 5, 5, 5, 5, 5 /* =35 */), TODAY)
+        assertEquals(29, s.trend.diff)
+        assertEquals(483, s.trend.percent)
+        assertEquals("+29", s.trend.label(TrendFormat.DIFF))
+        assertEquals("+483%", s.trend.label(TrendFormat.PERCENT))
+        assertEquals(TrendDirection.UP, s.trend.direction)
+    }
+
+    // --- Trend ---
+
+    @Test
+    fun `trend from zero has no percentage instead of a fake +100 percent`() {
+        val t = Trend(current = 4, previous = 0)
+        assertNull(t.percent)
+        assertNull(t.percentLabel)
+        assertEquals("+4", t.label(TrendFormat.PERCENT))
+    }
+
+    @Test
+    fun `trend down uses a minus sign`() {
+        val t = Trend(current = 5, previous = 10)
+        assertEquals(-5, t.diff)
+        assertEquals(-50, t.percent)
+        assertEquals("−5", t.diffLabel)
+        assertEquals("−50%", t.percentLabel)
+        assertEquals(TrendDirection.DOWN, t.direction)
+    }
+
+    @Test
+    fun `trend with no change is flat`() {
+        val t = Trend(current = 7, previous = 7)
+        assertEquals(TrendDirection.FLAT, t.direction)
+        assertEquals("0", t.diffLabel)
+        assertEquals("0%", t.percentLabel)
+    }
+
+    @Test
+    fun `any real change counts as a direction even when the percentage rounds small`() {
+        assertEquals(TrendDirection.UP, Trend(current = 101, previous = 100).direction)
+        assertEquals(1, Trend(current = 101, previous = 100).percent)
+    }
+
+    @Test
+    fun `both empty periods are flat with zero difference`() {
+        val t = Trend(0, 0)
+        assertEquals(TrendDirection.FLAT, t.direction)
+        assertEquals("0", t.label(TrendFormat.PERCENT))
+    }
+
+    // --- Tydzień kalendarzowy (podsumowanie tygodnia) ---
+
+    @Test
+    fun `last complete week is the previous Monday to Sunday`() {
+        val monday = LocalDate.of(2026, 9, 28)
+        val week = lastCompleteWeek(emptyList(), monday)
+        assertEquals(LocalDate.of(2026, 9, 21), week.weekStart)
+        assertEquals(LocalDate.of(2026, 9, 27), week.weekEnd)
+        assertEquals(DayOfWeek.MONDAY, week.weekStart.dayOfWeek)
+    }
+
+    @Test
+    fun `last complete week on a Sunday is still the week before`() {
+        val week = lastCompleteWeek(emptyList(), TODAY) // niedziela 27.09 — bieżący tydzień jeszcze trwa
+        assertEquals(LocalDate.of(2026, 9, 14), week.weekStart)
+    }
+
+    @Test
+    fun `last complete week compares against the week before it, not against zero`() {
+        // Regresja: dawniej trend liczony był na liście 7 dni, więc zawsze wychodziło „+100%”.
+        val monday = LocalDate.of(2026, 9, 28)
+        val h = history(*IntArray(14) { if (it < 7) 1 else 2 }, endingOn = monday.minusDays(1))
+        val week = lastCompleteWeek(h, monday)
+        assertEquals(14, week.trend.current)
+        assertEquals(7, week.trend.previous)
+        assertEquals(100, week.trend.percent)
+    }
+
+    // --- plural ---
+
+    @Test
+    fun `polish plural forms`() {
+        assertEquals("kontrybucja", plural(1, "kontrybucja", "kontrybucje", "kontrybucji"))
+        assertEquals("kontrybucje", plural(3, "kontrybucja", "kontrybucje", "kontrybucji"))
+        assertEquals("kontrybucji", plural(5, "kontrybucja", "kontrybucje", "kontrybucji"))
+        assertEquals("kontrybucji", plural(12, "kontrybucja", "kontrybucje", "kontrybucji"))
+        assertEquals("kontrybucje", plural(22, "kontrybucja", "kontrybucje", "kontrybucji"))
+        assertEquals("kontrybucji", plural(0, "kontrybucja", "kontrybucje", "kontrybucji"))
     }
 
     // --- level ---
@@ -167,12 +231,12 @@ class CommitStatsTest {
 
     @Test
     fun `level buckets counts into five intensity steps`() {
-        assertEquals(1, level(2, 10))  // q = 0.2
-        assertEquals(2, level(3, 10))  // q = 0.3
-        assertEquals(2, level(5, 10))  // q = 0.5 (boundary, inclusive)
-        assertEquals(3, level(6, 10))  // q = 0.6
-        assertEquals(4, level(8, 10))  // q = 0.8
-        assertEquals(4, level(10, 10)) // q = 1.0
+        assertEquals(1, level(2, 10))
+        assertEquals(2, level(3, 10))
+        assertEquals(2, level(5, 10))
+        assertEquals(3, level(6, 10))
+        assertEquals(4, level(8, 10))
+        assertEquals(4, level(10, 10))
     }
 
     @Test
@@ -184,51 +248,36 @@ class CommitStatsTest {
 
     @Test
     fun `contribution grid places today in its weekday row of the last column`() {
-        val today = LocalDate.of(2024, 1, 3) // Wednesday
-        val grid = buildContributionGridDates(today, columns = 3, rows = 7)
-
+        val wednesday = LocalDate.of(2024, 1, 3)
+        val grid = buildContributionGridDates(wednesday, columns = 3, rows = 7)
         assertEquals(7, grid.size)
         assertEquals(3, grid[0].size)
-
-        val todayRow = 3 // Sunday=0 .. Wednesday=3 .. Saturday=6
-        assertEquals(today, grid[todayRow].last())
+        assertEquals(wednesday, grid[3].last())
     }
 
     @Test
     fun `contribution grid nulls out days after today within the current week`() {
-        val today = LocalDate.of(2024, 1, 3) // Wednesday, row index 3
-        val grid = buildContributionGridDates(today, columns = 3, rows = 7)
-
-        // Thursday..Saturday (rows 4..6) of the current (last) week haven't happened yet.
-        for (row in 4..6) {
-            assertNull(grid[row].last())
-        }
-        // Sunday..Wednesday (rows 0..3) of the current week are real past/today dates.
-        for (row in 0..3) {
-            assertTrue(grid[row].last() != null)
-        }
+        val grid = buildContributionGridDates(LocalDate.of(2024, 1, 3), columns = 3, rows = 7)
+        for (row in 4..6) assertNull(grid[row].last())
+        for (row in 0..3) assertTrue(grid[row].last() != null)
     }
 
     @Test
     fun `contribution grid walks backward one week per column`() {
-        val today = LocalDate.of(2024, 1, 3) // Wednesday
-        val grid = buildContributionGridDates(today, columns = 3, rows = 7)
-        val todayRow = 3
-
-        assertEquals(today, grid[todayRow][2])
-        assertEquals(today.minusDays(7), grid[todayRow][1])
-        assertEquals(today.minusDays(14), grid[todayRow][0])
+        val wednesday = LocalDate.of(2024, 1, 3)
+        val grid = buildContributionGridDates(wednesday, columns = 3, rows = 7)
+        assertEquals(wednesday, grid[3][2])
+        assertEquals(wednesday.minusDays(7), grid[3][1])
+        assertEquals(wednesday.minusDays(14), grid[3][0])
     }
 
     // --- asDateMap ---
 
     @Test
     fun `asDateMap indexes counts by date`() {
-        val h = history(4, 5, 6)
-        val map = h.asDateMap()
-        assertEquals(4, map[BASE_DATE])
-        assertEquals(5, map[BASE_DATE.plusDays(1)])
-        assertEquals(6, map[BASE_DATE.plusDays(2)])
+        val map = history(4, 5, 6).asDateMap()
+        assertEquals(4, map[TODAY.minusDays(2)])
+        assertEquals(6, map[TODAY])
         assertEquals(3, map.size)
     }
 }

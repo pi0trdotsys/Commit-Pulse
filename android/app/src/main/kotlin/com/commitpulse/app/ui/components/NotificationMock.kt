@@ -1,6 +1,7 @@
 package com.commitpulse.app.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,18 +21,25 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.commitpulse.app.data.DayCommit
 import com.commitpulse.app.data.PL_WEEKDAYS
-import com.commitpulse.app.data.WeekDelta
-import com.commitpulse.app.data.lastN
-import com.commitpulse.app.data.sum
-import com.commitpulse.app.data.weekOverWeek
+import com.commitpulse.app.data.TrendDirection
+import com.commitpulse.app.data.lastCompleteWeek
+import com.commitpulse.app.data.weeklyDigestText
 import com.commitpulse.app.ui.theme.PaletteColors
 import com.commitpulse.app.ui.theme.WidgetColors
+import java.time.LocalDate
 
+/** Podgląd cotygodniowego powiadomienia — ta sama treść co prawdziwe podsumowanie. */
 @Composable
 fun NotificationMock(history: List<DayCommit>, pal: PaletteColors, modifier: Modifier = Modifier) {
-    val week = history.lastN(7)
-    val wow = week.weekOverWeek()
-    val up = wow.direction == WeekDelta.Direction.UP
+    val week = lastCompleteWeek(history, LocalDate.now())
+    val digest = weeklyDigestText(week)
+    val weekDays = (0L..6L).map { week.weekStart.plusDays(it) }
+    val counts = history.associate { it.date to it.count }
+    val trendColor = when (week.trend.direction) {
+        TrendDirection.UP -> pal.accent
+        TrendDirection.DOWN -> WidgetColors.trendDown
+        TrendDirection.FLAT -> WidgetColors.muted
+    }
 
     Column(
         modifier = modifier
@@ -40,7 +48,7 @@ fun NotificationMock(history: List<DayCommit>, pal: PaletteColors, modifier: Mod
             .padding(12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            androidx.compose.foundation.layout.Box(
+            Box(
                 modifier = Modifier
                     .size(16.dp)
                     .clip(RoundedCornerShape(5.dp))
@@ -53,26 +61,19 @@ fun NotificationMock(history: List<DayCommit>, pal: PaletteColors, modifier: Mod
         }
 
         Text(
-            "Ubiegły tydzień: ${week.sum()} commitów",
-            fontSize = 14.sp,
+            digest.headline,
+            fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
             color = WidgetColors.fg,
             modifier = Modifier.padding(top = 8.dp),
         )
-        Row(modifier = Modifier.padding(top = 2.dp)) {
-            Text(
-                (if (up) "▲ " else "▼ ") + wow.label,
-                fontSize = 12.sp,
-                color = if (up) pal.accent else WidgetColors.trendDown,
-            )
-            Text(" vs poprzedni tydzień", fontSize = 12.sp, color = WidgetColors.muted)
-        }
+        Text(digest.comparison, fontSize = 12.sp, color = trendColor, modifier = Modifier.padding(top = 2.dp, bottom = 6.dp))
 
-        HeatmapStrip(week, pal.heat, 16.dp, 4.dp, 3.dp)
+        HeatmapStrip(weekDays.map { DayCommit(it, counts[it] ?: 0) }, pal.heat, 16.dp, 4.dp, 3.dp)
         Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
-            week.forEach { d ->
+            weekDays.forEach { d ->
                 Text(
-                    d.date.dayOfWeek.toPlAbbrevLocal(),
+                    PL_WEEKDAYS[d.dayOfWeek.value % 7],
                     fontSize = 8.sp,
                     color = WidgetColors.muted,
                     modifier = Modifier.size(width = 20.dp, height = 12.dp),
@@ -81,7 +82,3 @@ fun NotificationMock(history: List<DayCommit>, pal: PaletteColors, modifier: Mod
         }
     }
 }
-
-private fun java.time.DayOfWeek.toPlAbbrevLocal(): String = PL_WEEKDAYS[
-    (this.value % 7),
-]

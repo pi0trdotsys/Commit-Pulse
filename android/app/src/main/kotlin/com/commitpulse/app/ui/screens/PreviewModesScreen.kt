@@ -7,50 +7,42 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.commitpulse.app.data.CommitSummary
 import com.commitpulse.app.data.DayCommit
 import com.commitpulse.app.data.MODES
 import com.commitpulse.app.data.WidgetMode
 import com.commitpulse.app.data.WidgetSettings
-import com.commitpulse.app.ui.components.PhoneFrame
 import com.commitpulse.app.ui.components.Section
-import com.commitpulse.app.ui.components.WidgetPreview
-import com.commitpulse.app.ui.theme.paletteFor
+import com.commitpulse.app.ui.components.StatsExplanation
+import com.commitpulse.app.ui.components.WidgetShowcase
+import com.commitpulse.app.ui.components.WidgetThumbnail
 
 @Composable
 fun PreviewModesScreen(
     settings: WidgetSettings,
     history: List<DayCommit>,
+    summary: CommitSummary,
+    lastSyncEpochMs: Long?,
     onModeChange: (WidgetMode) -> Unit,
 ) {
-    val pal = paletteFor(settings)
-
     Column(
         modifier = Modifier.padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
-        PhoneFrame(modifier = Modifier) {
-            WidgetPreview(
-                settings = settings,
-                history = history,
-                pal = pal,
-                modifier = Modifier.width(210.dp).height(82.dp),
-            )
-        }
+        WidgetShowcase(settings, history)
 
-        Section(title = "Tryb wizualizacji", hint = "Wybierz, żeby zobaczyć podmianę na widgecie powyżej.") {
+        Section(title = "Tryb wizualizacji", hint = "Wybierz, żeby zobaczyć podmianę na widgecie powyżej i na ekranie głównym.") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 MODES.forEach { m ->
                     val isActive = settings.mode == m.id
@@ -66,16 +58,9 @@ fun PreviewModesScreen(
                             .background(if (isActive) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
                             .clickable { onModeChange(m.id) }
                             .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        androidx.compose.foundation.layout.Box(
-                            modifier = Modifier
-                                .size(72.dp, 40.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(com.commitpulse.app.ui.theme.WidgetColors.deep)
-                                .padding(4.dp),
-                        ) {
-                            WidgetPreview(settings = settings.copy(mode = m.id), history = history, pal = pal)
-                        }
+                        WidgetThumbnail(settings.copy(mode = m.id), history)
                         Column(modifier = Modifier.padding(start = 14.dp)) {
                             Text(m.nameRes, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                             Text(m.descRes, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
@@ -83,6 +68,10 @@ fun PreviewModesScreen(
                     }
                 }
             }
+        }
+
+        Section(title = "Skąd te liczby?", hint = "Wszystkie wskaźniki z widgetu, rozpisane na konkretne dni.") {
+            StatsExplanation(summary, lastSyncEpochMs)
         }
     }
 }

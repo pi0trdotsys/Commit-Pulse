@@ -1,5 +1,7 @@
 package com.commitpulse.app.ui.theme
 
+import android.content.Context
+import android.os.Build
 import androidx.compose.ui.graphics.Color
 import com.commitpulse.app.data.DEFAULT_CUSTOM_COLOR_HEX
 import com.commitpulse.app.data.Palette
@@ -78,3 +80,55 @@ fun paletteFor(palette: Palette, customColorHex: String): PaletteColors = when (
 }
 
 fun paletteFor(settings: WidgetSettings): PaletteColors = paletteFor(settings.palette, settings.customColorHex)
+
+/** Material You (kolory systemowe z tapety) jest dostępny od Androida 12. */
+val isMaterialYouSupported: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+/**
+ * Kolory widgetu. Przy włączonym Material You pochodzą z dynamicznej palety systemu (tony
+ * akcentu z tapety dla heatmapy, neutralne tony dla tła i tekstu); inaczej z wybranej palety.
+ */
+data class WidgetTheme(
+    val fg: Color,
+    val muted: Color,
+    val card: Color,
+    val deep: Color,
+    val accent: Color,
+    val heat: List<Color>,
+    val down: Color,
+) {
+    val palette: PaletteColors get() = PaletteColors(displayName = "Material You", heat = heat, accent = accent)
+}
+
+fun widgetTheme(context: Context, settings: WidgetSettings): WidgetTheme {
+    if (settings.materialYou && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        fun sys(id: Int) = Color(context.getColor(id))
+        // Sufiks tonu: 1000 = czerń … 0 = biel. Jasność kwadratów musi rosnąć z aktywnością
+        // (ton 20 → 90), a puste dni (neutral 800) muszą być ciemniejsze od poziomu 1.
+        return WidgetTheme(
+            fg = sys(android.R.color.system_neutral1_50),
+            muted = sys(android.R.color.system_neutral2_300),
+            card = sys(android.R.color.system_neutral1_900),
+            deep = sys(android.R.color.system_neutral1_1000),
+            accent = sys(android.R.color.system_accent1_200),
+            heat = listOf(
+                sys(android.R.color.system_neutral2_800),
+                sys(android.R.color.system_accent1_700),
+                sys(android.R.color.system_accent1_500),
+                sys(android.R.color.system_accent1_300),
+                sys(android.R.color.system_accent1_100),
+            ),
+            down = WidgetColors.trendDown,
+        )
+    }
+    val pal = paletteFor(settings)
+    return WidgetTheme(
+        fg = WidgetColors.fg,
+        muted = WidgetColors.muted,
+        card = WidgetColors.surface,
+        deep = WidgetColors.deep,
+        accent = pal.accent,
+        heat = pal.heat,
+        down = WidgetColors.trendDown,
+    )
+}

@@ -8,7 +8,9 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.commitpulse.app.data.DEFAULT_CUSTOM_COLOR_HEX
 import com.commitpulse.app.data.DayCommit
+import com.commitpulse.app.data.GRID_WEEK_OPTIONS
 import com.commitpulse.app.data.Palette
+import com.commitpulse.app.data.TrendFormat
 import com.commitpulse.app.data.Range
 import com.commitpulse.app.data.RefreshInterval
 import com.commitpulse.app.data.Surface
@@ -32,6 +34,10 @@ class SettingsRepository(private val context: Context) {
         val MODE = stringPreferencesKey("mode")
         val PALETTE = stringPreferencesKey("palette")
         val CUSTOM_COLOR_HEX = stringPreferencesKey("custom_color_hex")
+        val MATERIAL_YOU = booleanPreferencesKey("material_you")
+        val MINIMAL = booleanPreferencesKey("minimal")
+        val GRID_WEEKS = intPreferencesKey("grid_weeks")
+        val TREND_FORMAT = stringPreferencesKey("trend_format")
         val SURFACE = stringPreferencesKey("surface")
         val GOAL = intPreferencesKey("goal")
         val RANGE = intPreferencesKey("range")
@@ -59,6 +65,10 @@ class SettingsRepository(private val context: Context) {
             mode = prefs[Keys.MODE]?.let { runCatching { WidgetMode.valueOf(it) }.getOrNull() } ?: WidgetMode.HEATMAP,
             palette = prefs[Keys.PALETTE]?.let { runCatching { Palette.valueOf(it) }.getOrNull() } ?: Palette.GITHUB,
             customColorHex = prefs[Keys.CUSTOM_COLOR_HEX]?.let { normalizeHexColor(it) } ?: DEFAULT_CUSTOM_COLOR_HEX,
+            materialYou = prefs[Keys.MATERIAL_YOU] ?: false,
+            minimal = prefs[Keys.MINIMAL] ?: false,
+            gridWeeks = prefs[Keys.GRID_WEEKS]?.takeIf { it in GRID_WEEK_OPTIONS } ?: 0,
+            trendFormat = prefs[Keys.TREND_FORMAT]?.let { runCatching { TrendFormat.valueOf(it) }.getOrNull() } ?: TrendFormat.DIFF,
             surface = prefs[Keys.SURFACE]?.let { runCatching { Surface.valueOf(it) }.getOrNull() } ?: Surface.CARD,
             goal = prefs[Keys.GOAL] ?: 8,
             range = prefs[Keys.RANGE]?.let { d -> Range.entries.find { it.days == d } } ?: Range.FOURTEEN,
@@ -85,6 +95,9 @@ class SettingsRepository(private val context: Context) {
 
     val lastErrorFlow: Flow<String?> = context.dataStore.data.map { it[Keys.LAST_ERROR] }
 
+    /** Czas ostatniej udanej synchronizacji z GitHubem (epoch ms) albo null, jeśli jeszcze nie było. */
+    val lastSyncFlow: Flow<Long?> = context.dataStore.data.map { it[Keys.LAST_SYNC_EPOCH]?.toLongOrNull() }
+
     suspend fun currentSettings(): WidgetSettings = settingsFlow.first()
 
     suspend fun update(transform: (WidgetSettings) -> WidgetSettings) {
@@ -93,6 +106,10 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.MODE] = next.mode.name
             prefs[Keys.PALETTE] = next.palette.name
             prefs[Keys.CUSTOM_COLOR_HEX] = normalizeHexColor(next.customColorHex) ?: DEFAULT_CUSTOM_COLOR_HEX
+            prefs[Keys.MATERIAL_YOU] = next.materialYou
+            prefs[Keys.MINIMAL] = next.minimal
+            prefs[Keys.GRID_WEEKS] = next.gridWeeks
+            prefs[Keys.TREND_FORMAT] = next.trendFormat.name
             prefs[Keys.SURFACE] = next.surface.name
             prefs[Keys.GOAL] = next.goal
             prefs[Keys.RANGE] = next.range.days

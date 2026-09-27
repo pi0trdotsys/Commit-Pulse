@@ -1,11 +1,15 @@
 package com.commitpulse.app.ui.theme
 
+import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 
 private val LightColors = lightColorScheme(
     primary = Color(0xFF14203D),
@@ -26,16 +30,26 @@ private val DarkColors = darkColorScheme(
     onBackground = Color(0xFFF1F3F8),
     onSurface = Color(0xFFF1F3F8),
     surfaceVariant = Color(0xFF1E2430),
-    outline = Color(0xFF2E3542),
+    outline = Color(0xFF5A6272),
+    outlineVariant = Color(0xFF2E3542),
 )
 
 @Composable
 fun CommitPulseTheme(
+    materialYou: Boolean = false,
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
+    val colorScheme = when {
+        materialYou && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            val context = LocalContext.current
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+        darkTheme -> DarkColors
+        else -> LightColors
+    }
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
+        colorScheme = colorScheme,
         typography = MaterialTheme.typography,
         content = content,
     )

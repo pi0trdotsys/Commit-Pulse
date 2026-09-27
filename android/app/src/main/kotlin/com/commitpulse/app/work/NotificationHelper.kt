@@ -8,11 +8,10 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.commitpulse.app.data.DayCommit
-import com.commitpulse.app.data.WeekDelta
-import com.commitpulse.app.data.lastN
-import com.commitpulse.app.data.sum
-import com.commitpulse.app.data.weekOverWeek
+import com.commitpulse.app.data.lastCompleteWeek
+import com.commitpulse.app.data.weeklyDigestText
 import com.commitpulse.app.ui.MainActivity
+import java.time.LocalDate
 
 object NotificationHelper {
     const val CHANNEL_DIGEST = "weekly_digest"
@@ -46,10 +45,8 @@ object NotificationHelper {
     }
 
     fun showWeeklyDigest(context: Context, history: List<DayCommit>) {
-        val week = history.lastN(7)
-        val wow = week.weekOverWeek()
-        val up = wow.direction == WeekDelta.Direction.UP
-        val text = "Ubiegły tydzień: ${week.sum()} commitów ${if (up) "▲" else "▼"} ${wow.label} vs poprzedni tydzień"
+        val digest = weeklyDigestText(lastCompleteWeek(history, LocalDate.now()))
+        val text = "${digest.headline}\n${digest.comparison}"
 
         val notification = NotificationCompat.Builder(context, CHANNEL_DIGEST)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
@@ -67,7 +64,7 @@ object NotificationHelper {
         val notification = NotificationCompat.Builder(context, CHANNEL_ALERTS)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("Seria zagrożona 🔥")
-            .setContentText("Jeszcze nie było dziś commita — nie przerywaj serii.")
+            .setContentText("Dziś jeszcze brak kontrybucji — nie przerywaj serii.")
             .setContentIntent(contentIntent(context))
             .setAutoCancel(true)
             .build()

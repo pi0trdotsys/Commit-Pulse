@@ -3,8 +3,10 @@ package com.commitpulse.app.widget
 import android.content.Context
 import android.content.Intent
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -41,28 +43,28 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.commitpulse.app.commitPulseApp
+import com.commitpulse.app.data.CommitSummary
 import com.commitpulse.app.data.DayCommit
 import com.commitpulse.app.data.HeaderLayout
 import com.commitpulse.app.data.Surface as WidgetSurface
 import com.commitpulse.app.data.TapAction
-import com.commitpulse.app.data.WeekDelta
+import com.commitpulse.app.data.Trend
+import com.commitpulse.app.data.TrendDirection
+import com.commitpulse.app.data.TrendFormat
 import com.commitpulse.app.data.WidgetMode
 import com.commitpulse.app.data.WidgetSettings
 import com.commitpulse.app.data.asDateMap
 import com.commitpulse.app.data.buildGridCells
 import com.commitpulse.app.data.chooseHeaderLayout
-import com.commitpulse.app.data.compactLabel
 import com.commitpulse.app.data.computeGridLayout
 import com.commitpulse.app.data.estimateTextWidthDp
 import com.commitpulse.app.data.lastN
 import com.commitpulse.app.data.lineHeightDp
-import com.commitpulse.app.data.streak
-import com.commitpulse.app.data.today
-import com.commitpulse.app.data.weekOverWeek
+import com.commitpulse.app.data.summarize
 import com.commitpulse.app.ui.MainActivity
-import com.commitpulse.app.ui.theme.PaletteColors
 import com.commitpulse.app.ui.theme.WidgetColors
-import com.commitpulse.app.ui.theme.paletteFor
+import com.commitpulse.app.ui.theme.WidgetTheme
+import com.commitpulse.app.ui.theme.widgetTheme
 import kotlinx.coroutines.flow.first
 import java.time.LocalDate
 import kotlin.math.floor
@@ -75,6 +77,10 @@ private const val DELTA_SP = 9f
 private const val BADGE_SP = 9f
 private const val ROW_GAP_DP = 2f
 private const val SECTION_GAP_DP = 4f
+
+private val LocalWidgetTheme = staticCompositionLocalOf {
+    WidgetTheme(WidgetColors.fg, WidgetColors.muted, WidgetColors.surface, WidgetColors.deep, WidgetColors.trendUp, emptyList(), WidgetColors.trendDown)
+}
 
 class CommitPulseWidget : GlanceAppWidget() {
 
@@ -91,7 +97,7 @@ class CommitPulseWidget : GlanceAppWidget() {
             // provideGlance — dlatego stan musi być obserwowany tutaj, a nie odczytany raz wyżej.
             val settings by repository.settingsFlow.collectAsState(initialSettings)
             val history by repository.historyFlow.collectAsState(initialHistory)
-            CommitPulseWidgetContent(settings, paletteFor(settings), history, history.lastN(settings.range.days))
+            CommitPulseWidgetContent(settings, history, LocalDate.now(), widgetTheme(context, settings))
         }
     }
 }
@@ -131,34 +137,33 @@ private fun tapAction(action: TapAction): Action {
     }
 }
 
+/** Cała treść widgetu; [interactive] = false dla podglądu w aplikacji (bez akcji tapnięcia). */
 @Composable
-private fun CommitPulseWidgetContent(
+internal fun CommitPulseWidgetContent(
     settings: WidgetSettings,
-    pal: PaletteColors,
     history: List<DayCommit>,
-    rangeHistory: List<DayCommit>,
+    today: LocalDate,
+    theme: WidgetTheme,
+    interactive: Boolean = true,
 ) {
     val bg = when (settings.surface) {
         WidgetSurface.TRANSPARENT -> ColorProvider(Color.Transparent)
-        WidgetSurface.CARD -> ColorProvider(WidgetColors.surface.copy(alpha = 0.92f))
-        WidgetSurface.DARK -> ColorProvider(WidgetColors.deep)
+        WidgetSurface.CARD -> ColorProvider(theme.card.copy(alpha = 0.92f))
+        WidgetSurface.DARK -> ColorProvider(theme.deep)
     }
     val m = rememberMetrics()
+    val summary = summarize(history, today)
+    val base = GlanceModifier.fillMaxSize().background(bg).cornerRadius(14.dp).padding(m.padding)
 
-    Box(
-        modifier = GlanceModifier
-            .fillMaxSize()
-            .background(bg)
-            .cornerRadius(14.dp)
-            .padding(m.padding)
-            .clickable(tapAction(settings.tapAction)),
-    ) {
-        when (settings.mode) {
-            WidgetMode.HEATMAP -> HeatmapMode(history, pal, m)
-            WidgetMode.SPARKLINE -> SparklineMode(history, rangeHistory, pal, m)
-            WidgetMode.COUNTER -> CounterMode(history, pal, m)
-            WidgetMode.GOAL -> GoalMode(history, settings.goal, pal, m)
-            WidgetMode.HEATMAP_30 -> Heatmap30Mode(history, pal, m)
+    CompositionLocalProvider(LocalWidgetTheme provides theme) {
+        Box(modifier = if (interactive) base.clickable(tapAction(settings.tapAction)) else base) {
+            when (settings.mode) {
+                WidgetMode.HEATMAP -> HeatmapMode(history, summary, settings, m)
+                WidgetMode.SPARKLINE -> SparklineMode(history.lastN(settings.range.days), summary, settings, m)
+                WidgetMode.COUNTER -> CounterMode(summary, settings, m)
+                WidgetMode.GOAL -> GoalMode(summary, settings, m)
+                WidgetMode.HEATMAP_30 -> Heatmap30Mode(history, summary, settings, m)
+            }
         }
     }
 }
@@ -189,17 +194,19 @@ private fun Metrics.todayCountWidth(today: Int, sp: Float) = textWidth("$today",
 
 @Composable
 private fun TodayCount(today: Int, sp: Float) {
+    val theme = LocalWidgetTheme.current
     Row(verticalAlignment = Alignment.Vertical.Bottom) {
-        OneLine("$today", sp, WidgetColors.fg, bold = true)
+        OneLine("$today", sp, theme.fg, bold = true)
         Spacer(modifier = GlanceModifier.width(3.dp))
-        OneLine("dziś", LABEL_SP, WidgetColors.muted)
+        OneLine("dziś", LABEL_SP, theme.muted)
     }
 }
 
 private fun streakBadgeWidth(m: Metrics, streak: Int) = m.textWidth("🔥", LABEL_SP) + 2f + m.textWidth("${streak}d", BADGE_SP) + 12f
 
 @Composable
-private fun StreakBadge(streak: Int, accent: Color) {
+private fun StreakBadge(streak: Int) {
+    val accent = LocalWidgetTheme.current.accent
     Row(
         modifier = GlanceModifier
             .background(ColorProvider(accent.copy(alpha = 0.18f)))
@@ -213,32 +220,34 @@ private fun StreakBadge(streak: Int, accent: Color) {
     }
 }
 
-private const val DELTA_SUFFIX = "vs poprz. 7 dni"
+private const val TREND_SUFFIX = "vs poprz. 7 dni"
 
-private fun deltaWidth(m: Metrics, wow: WeekDelta, withSuffix: Boolean): Float {
-    val base = m.textWidth("▲", LABEL_SP) + 2f + m.textWidth(wow.compactLabel(), DELTA_SP)
-    return if (withSuffix) base + 3f + m.textWidth(DELTA_SUFFIX, LABEL_SP) else base
+private fun trendWidth(m: Metrics, trend: Trend, format: TrendFormat, withSuffix: Boolean): Float {
+    val base = m.textWidth("▲", LABEL_SP) + 2f + m.textWidth(trend.label(format), DELTA_SP)
+    return if (withSuffix) base + 3f + m.textWidth(TREND_SUFFIX, LABEL_SP) else base
 }
 
+/** Zmiana ostatnich 7 dni względem 7 dni wcześniej (wyjaśnienie w aplikacji, zakładka Podgląd). */
 @Composable
-private fun DeltaRow(wow: WeekDelta, accent: Color, withSuffix: Boolean = false) {
-    val color = when (wow.direction) {
-        WeekDelta.Direction.UP -> accent
-        WeekDelta.Direction.DOWN -> WidgetColors.trendDown
-        WeekDelta.Direction.FLAT -> WidgetColors.muted
+private fun TrendRow(trend: Trend, format: TrendFormat, withSuffix: Boolean = false) {
+    val theme = LocalWidgetTheme.current
+    val color = when (trend.direction) {
+        TrendDirection.UP -> theme.accent
+        TrendDirection.DOWN -> theme.down
+        TrendDirection.FLAT -> theme.muted
     }
-    val arrow = when (wow.direction) {
-        WeekDelta.Direction.UP -> "▲"
-        WeekDelta.Direction.DOWN -> "▼"
-        WeekDelta.Direction.FLAT -> "▬"
+    val arrow = when (trend.direction) {
+        TrendDirection.UP -> "▲"
+        TrendDirection.DOWN -> "▼"
+        TrendDirection.FLAT -> "▬"
     }
     Row(verticalAlignment = Alignment.Vertical.CenterVertically) {
         OneLine(arrow, LABEL_SP, color)
         Spacer(modifier = GlanceModifier.width(2.dp))
-        OneLine(wow.compactLabel(), DELTA_SP, color, bold = true)
+        OneLine(trend.label(format), DELTA_SP, color, bold = true)
         if (withSuffix) {
             Spacer(modifier = GlanceModifier.width(3.dp))
-            OneLine(DELTA_SUFFIX, LABEL_SP, WidgetColors.muted)
+            OneLine(TREND_SUFFIX, LABEL_SP, theme.muted)
         }
     }
 }
@@ -247,15 +256,15 @@ private fun DeltaRow(wow: WeekDelta, accent: Color, withSuffix: Boolean = false)
 @Composable
 private fun ContributionGridImage(
     history: List<DayCommit>,
-    heat: List<Color>,
+    today: LocalDate,
     m: Metrics,
     widthDp: Float,
     heightDp: Float,
     maxDays: Int,
     fitAllDays: Boolean,
+    fixedWeeks: Int = 0,
 ) {
-    val today = history.lastOrNull()?.date ?: LocalDate.now()
-    val layout = computeGridLayout(widthDp, heightDp, maxDays, today, fitAllDays)
+    val layout = computeGridLayout(widthDp, heightDp, maxDays, today, fitAllDays, fixedWeeks)
     val cells = buildGridCells(today, layout, earliest = history.firstOrNull()?.date)
     val counts = history.asDateMap()
     // Intensywność względem widocznego okresu, nie całej pobranej historii.
@@ -268,7 +277,7 @@ private fun ContributionGridImage(
     val cellFitH = (availableH - (layout.rows - 1) * gapPx) / layout.rows
     val cellPx = min(m.toPx(layout.cellDp), min(cellFitW, cellFitH)).coerceAtLeast(2)
 
-    val bitmap = WidgetGraphics.contributionGrid(cells, counts, visibleMax, heat, cellPx, gapPx)
+    val bitmap = WidgetGraphics.contributionGrid(cells, counts, visibleMax, LocalWidgetTheme.current.heat, cellPx, gapPx)
     Image(
         provider = ImageProvider(bitmap),
         contentDescription = null,
@@ -281,13 +290,13 @@ private fun ContributionGridImage(
 
 private class StatsHeaderSpec(val layout: HeaderLayout, val countSp: Float, val heightDp: Float)
 
-private fun statsHeaderSpec(m: Metrics, today: Int, wow: WeekDelta, streak: Int): StatsHeaderSpec {
+private fun statsHeaderSpec(m: Metrics, s: CommitSummary, format: TrendFormat): StatsHeaderSpec {
     val countSp = if (m.width >= 220f) 20f else 16f
     val layout = chooseHeaderLayout(
         widthDp = m.width,
-        countWidthDp = m.todayCountWidth(today, countSp),
-        deltaWidthDp = deltaWidth(m, wow, withSuffix = false),
-        streakWidthDp = streakBadgeWidth(m, streak),
+        countWidthDp = m.todayCountWidth(s.todayCount, countSp),
+        deltaWidthDp = trendWidth(m, s.trend, format, withSuffix = false),
+        streakWidthDp = streakBadgeWidth(m, s.streak),
     )
     val count = m.lineHeight(countSp)
     val delta = m.lineHeight(DELTA_SP)
@@ -301,105 +310,114 @@ private fun statsHeaderSpec(m: Metrics, today: Int, wow: WeekDelta, streak: Int)
 }
 
 @Composable
-private fun StatsHeader(spec: StatsHeaderSpec, today: Int, wow: WeekDelta, streak: Int, accent: Color) {
+private fun StatsHeader(spec: StatsHeaderSpec, s: CommitSummary, format: TrendFormat) {
     when (spec.layout) {
         HeaderLayout.ONE_ROW -> SpaceBetweenRow(
             start = {
                 Row(verticalAlignment = Alignment.Vertical.CenterVertically) {
-                    TodayCount(today, spec.countSp)
+                    TodayCount(s.todayCount, spec.countSp)
                     Spacer(modifier = GlanceModifier.width(8.dp))
-                    DeltaRow(wow, accent)
+                    TrendRow(s.trend, format)
                 }
             },
-            end = { StreakBadge(streak, accent) },
+            end = { StreakBadge(s.streak) },
         )
         HeaderLayout.TWO_ROWS -> Column {
-            SpaceBetweenRow(start = { TodayCount(today, spec.countSp) }, end = { StreakBadge(streak, accent) })
+            SpaceBetweenRow(start = { TodayCount(s.todayCount, spec.countSp) }, end = { StreakBadge(s.streak) })
             Spacer(modifier = GlanceModifier.height(ROW_GAP_DP.dp))
-            DeltaRow(wow, accent)
+            TrendRow(s.trend, format)
         }
         HeaderLayout.THREE_ROWS -> Column {
-            TodayCount(today, spec.countSp)
+            TodayCount(s.todayCount, spec.countSp)
             Spacer(modifier = GlanceModifier.height(ROW_GAP_DP.dp))
-            DeltaRow(wow, accent)
+            TrendRow(s.trend, format)
             Spacer(modifier = GlanceModifier.height(ROW_GAP_DP.dp))
-            StreakBadge(streak, accent)
+            StreakBadge(s.streak)
         }
     }
 }
 
 @Composable
-private fun HeatmapMode(history: List<DayCommit>, pal: PaletteColors, m: Metrics) {
-    val today = history.today()
-    val wow = history.weekOverWeek()
-    val streak = history.streak()
-    val header = statsHeaderSpec(m, today, wow, streak)
-    // Bardzo niski widget: nagłówek zabrałby całe miejsce siatce, więc zostaje sama siatka.
-    val showHeader = m.height - header.heightDp - SECTION_GAP_DP >= 24f
+private fun HeatmapMode(history: List<DayCommit>, s: CommitSummary, settings: WidgetSettings, m: Metrics) {
+    val header = statsHeaderSpec(m, s, settings.trendFormat)
+    // Minimalistycznie albo w bardzo niskim widgecie: sama siatka, bez nagłówka.
+    val showHeader = !settings.minimal && m.height - header.heightDp - SECTION_GAP_DP >= 24f
     val gridHeight = if (showHeader) m.height - header.heightDp - SECTION_GAP_DP else m.height
 
-    Column(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.Vertical.CenterVertically) {
+    Column(
+        modifier = GlanceModifier.fillMaxSize(),
+        verticalAlignment = Alignment.Vertical.CenterVertically,
+        horizontalAlignment = if (showHeader) Alignment.Horizontal.Start else Alignment.Horizontal.CenterHorizontally,
+    ) {
         if (showHeader) {
-            StatsHeader(header, today, wow, streak, pal.accent)
+            StatsHeader(header, s, settings.trendFormat)
             Spacer(modifier = GlanceModifier.height(SECTION_GAP_DP.dp))
         }
-        ContributionGridImage(history, pal.heat, m, m.width, gridHeight, maxDays = history.size.coerceAtLeast(7), fitAllDays = false)
+        ContributionGridImage(
+            history, s.today, m, m.width, gridHeight,
+            maxDays = history.size.coerceAtLeast(7), fitAllDays = false, fixedWeeks = settings.gridWeeks,
+        )
     }
 }
 
 @Composable
-private fun Heatmap30Mode(history: List<DayCommit>, pal: PaletteColors, m: Metrics) {
-    val wow = history.weekOverWeek()
+private fun Heatmap30Mode(history: List<DayCommit>, s: CommitSummary, settings: WidgetSettings, m: Metrics) {
+    val theme = LocalWidgetTheme.current
     val title = "30 DNI"
-    val oneRow = m.textWidth(title, LABEL_SP) + 8f + deltaWidth(m, wow, withSuffix = false) <= m.width
+    val format = settings.trendFormat
+    val oneRow = m.textWidth(title, LABEL_SP) + 8f + trendWidth(m, s.trend, format, withSuffix = false) <= m.width
     val headerHeight = if (oneRow) m.lineHeight(DELTA_SP) else m.lineHeight(LABEL_SP) + ROW_GAP_DP + m.lineHeight(DELTA_SP)
-    val showHeader = m.height - headerHeight - SECTION_GAP_DP >= 24f
+    val showHeader = !settings.minimal && m.height - headerHeight - SECTION_GAP_DP >= 24f
     val gridHeight = if (showHeader) m.height - headerHeight - SECTION_GAP_DP else m.height
 
-    Column(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.Vertical.CenterVertically) {
+    Column(
+        modifier = GlanceModifier.fillMaxSize(),
+        verticalAlignment = Alignment.Vertical.CenterVertically,
+        horizontalAlignment = if (showHeader) Alignment.Horizontal.Start else Alignment.Horizontal.CenterHorizontally,
+    ) {
         if (showHeader) {
             if (oneRow) {
                 SpaceBetweenRow(
-                    start = { OneLine(title, LABEL_SP, WidgetColors.muted) },
-                    end = { DeltaRow(wow, pal.accent) },
+                    start = { OneLine(title, LABEL_SP, theme.muted) },
+                    end = { TrendRow(s.trend, format) },
                 )
             } else {
                 Column {
-                    OneLine(title, LABEL_SP, WidgetColors.muted)
+                    OneLine(title, LABEL_SP, theme.muted)
                     Spacer(modifier = GlanceModifier.height(ROW_GAP_DP.dp))
-                    DeltaRow(wow, pal.accent)
+                    TrendRow(s.trend, format)
                 }
             }
             Spacer(modifier = GlanceModifier.height(SECTION_GAP_DP.dp))
         }
         // Pełna historia jako źródło liczników: siatka domyka pełne tygodnie prawdziwymi danymi,
         // zamiast poszarpanej pierwszej kolumny ucinanej dokładnie na 30. dniu.
-        ContributionGridImage(history, pal.heat, m, m.width, gridHeight, maxDays = 30, fitAllDays = true)
+        ContributionGridImage(history, s.today, m, m.width, gridHeight, maxDays = 30, fitAllDays = true)
     }
 }
 
 @Composable
-private fun SparklineMode(history: List<DayCommit>, rangeHistory: List<DayCommit>, pal: PaletteColors, m: Metrics) {
-    val today = history.today()
-    val wow = history.weekOverWeek()
+private fun SparklineMode(rangeHistory: List<DayCommit>, s: CommitSummary, settings: WidgetSettings, m: Metrics) {
+    val theme = LocalWidgetTheme.current
+    val format = settings.trendFormat
     val countCap = if (m.width >= 220f || m.height >= 140f) 28f else 22f
-    val countSp = min(countCap, m.spToFit("$today", m.width * 0.6f))
-    val countWidth = m.todayCountWidth(today, countSp)
-    val oneRow = countWidth + 8f + deltaWidth(m, wow, withSuffix = false) <= m.width
+    val countSp = min(countCap, m.spToFit("${s.todayCount}", m.width * 0.6f))
+    val countWidth = m.todayCountWidth(s.todayCount, countSp)
+    val oneRow = settings.minimal || countWidth + 8f + trendWidth(m, s.trend, format, withSuffix = false) <= m.width
     val headerHeight = if (oneRow) m.lineHeight(countSp) else m.lineHeight(countSp) + ROW_GAP_DP + m.lineHeight(DELTA_SP)
     // Wykres nie wyższy niż ~0,7 szerokości — w wąskim, wysokim widgecie krzywa rozciągnięta
     // na całą wysokość robi się nieczytelnie szpiczasta.
     val chartHeight = min(m.height - headerHeight - SECTION_GAP_DP, max(m.width * 0.7f, 28f)).coerceAtLeast(12f)
-    val bitmap = WidgetGraphics.sparkline(rangeHistory, pal.accent, m.toPx(m.width), m.toPx(chartHeight), m.density)
+    val bitmap = WidgetGraphics.sparkline(rangeHistory, theme.accent, m.toPx(m.width), m.toPx(chartHeight), m.density)
 
     Column(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.Vertical.CenterVertically) {
-        if (oneRow) {
-            SpaceBetweenRow(start = { TodayCount(today, countSp) }, end = { DeltaRow(wow, pal.accent) })
-        } else {
-            Column {
-                TodayCount(today, countSp)
+        when {
+            settings.minimal -> OneLine("${s.todayCount}", countSp, theme.fg, bold = true)
+            oneRow -> SpaceBetweenRow(start = { TodayCount(s.todayCount, countSp) }, end = { TrendRow(s.trend, format) })
+            else -> Column {
+                TodayCount(s.todayCount, countSp)
                 Spacer(modifier = GlanceModifier.height(ROW_GAP_DP.dp))
-                DeltaRow(wow, pal.accent)
+                TrendRow(s.trend, format)
             }
         }
         Spacer(modifier = GlanceModifier.height(SECTION_GAP_DP.dp))
@@ -413,10 +431,20 @@ private fun SparklineMode(history: List<DayCommit>, rangeHistory: List<DayCommit
 }
 
 @Composable
-private fun CounterMode(history: List<DayCommit>, pal: PaletteColors, m: Metrics) {
-    val number = history.today().toString()
-    val wow = history.weekOverWeek()
-    val withSuffix = deltaWidth(m, wow, withSuffix = true) <= m.width
+private fun CounterMode(s: CommitSummary, settings: WidgetSettings, m: Metrics) {
+    val theme = LocalWidgetTheme.current
+    val number = s.todayCount.toString()
+    val format = settings.trendFormat
+
+    if (settings.minimal) {
+        val sp = min(min(64f, m.spToFit(number, m.width * 0.9f)), m.height / (1.3f * m.fontScale))
+        Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            OneLine(number, sp, theme.fg, bold = true)
+        }
+        return
+    }
+
+    val withSuffix = trendWidth(m, s.trend, format, withSuffix = true) <= m.width
     val labelWidth = m.textWidth("commitów", LABEL_SP)
     val labels = 2 * m.lineHeight(LABEL_SP)
     val footer = m.lineHeight(DELTA_SP) + SECTION_GAP_DP
@@ -434,64 +462,68 @@ private fun CounterMode(history: List<DayCommit>, pal: PaletteColors, m: Metrics
     Column(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.Vertical.CenterVertically) {
         if (sideBySide) {
             Row(verticalAlignment = Alignment.Vertical.Bottom) {
-                OneLine(number, numberSp, WidgetColors.fg, bold = true)
+                OneLine(number, numberSp, theme.fg, bold = true)
                 Spacer(modifier = GlanceModifier.width(6.dp))
                 Column {
-                    OneLine("commitów", LABEL_SP, WidgetColors.muted)
-                    OneLine("dzisiaj", LABEL_SP, WidgetColors.muted)
+                    OneLine("commitów", LABEL_SP, theme.muted)
+                    OneLine("dzisiaj", LABEL_SP, theme.muted)
                 }
             }
         } else {
-            OneLine(number, numberSp, WidgetColors.fg, bold = true)
-            OneLine("commitów", LABEL_SP, WidgetColors.muted)
-            OneLine("dzisiaj", LABEL_SP, WidgetColors.muted)
+            OneLine(number, numberSp, theme.fg, bold = true)
+            OneLine("commitów", LABEL_SP, theme.muted)
+            OneLine("dzisiaj", LABEL_SP, theme.muted)
         }
         Spacer(modifier = GlanceModifier.height(SECTION_GAP_DP.dp))
-        DeltaRow(wow, pal.accent, withSuffix = withSuffix)
+        TrendRow(s.trend, format, withSuffix = withSuffix)
     }
 }
 
 @Composable
-private fun GoalMode(history: List<DayCommit>, goal: Int, pal: PaletteColors, m: Metrics) {
-    val today = history.today()
-    val wow = history.weekOverWeek()
-    val streak = history.streak()
+private fun GoalMode(s: CommitSummary, settings: WidgetSettings, m: Metrics) {
+    val theme = LocalWidgetTheme.current
+    val goal = settings.goal
+    val format = settings.trendFormat
 
     val goalText = "cel $goal/dzień".takeIf { m.textWidth(it, 10f) <= m.width } ?: "cel $goal"
-    val streakText = "🔥 seria $streak dni".takeIf { m.textWidth(it, LABEL_SP) <= m.width } ?: "🔥 $streak dni"
-    val infoWidth = maxOf(m.textWidth(goalText, 10f), deltaWidth(m, wow, withSuffix = false), m.textWidth(streakText, LABEL_SP))
+    val streakText = "🔥 seria ${s.streak} dni".takeIf { m.textWidth(it, LABEL_SP) <= m.width } ?: "🔥 ${s.streak} dni"
+    val infoWidth = maxOf(m.textWidth(goalText, 10f), trendWidth(m, s.trend, format, withSuffix = false), m.textWidth(streakText, LABEL_SP))
     val infoHeight = m.lineHeight(10f) + ROW_GAP_DP + m.lineHeight(DELTA_SP) + ROW_GAP_DP + m.lineHeight(LABEL_SP)
 
     val rowRing = min(min(m.height, 72f), m.width - 8f - infoWidth)
-    val useRow = rowRing >= 36f
-    val ringDp = if (useRow) rowRing else min(min(m.width, 72f), m.height - infoHeight - 6f).coerceAtLeast(24f)
-    val ringBitmap = WidgetGraphics.goalRing(today, goal, pal.accent, m.toPx(ringDp))
-    val ringNumberSp = min(ringDp * 0.34f / m.fontScale, m.spToFit("$today", ringDp * 0.6f))
+    val useRow = !settings.minimal && rowRing >= 36f
+    val ringDp = when {
+        settings.minimal -> min(min(m.width, m.height), 96f)
+        useRow -> rowRing
+        else -> min(min(m.width, 72f), m.height - infoHeight - 6f).coerceAtLeast(24f)
+    }
+    val ringBitmap = WidgetGraphics.goalRing(s.todayCount, goal, theme.accent, m.toPx(ringDp))
+    val ringNumberSp = min(ringDp * 0.34f / m.fontScale, m.spToFit("${s.todayCount}", ringDp * 0.6f))
 
     val ring: @Composable () -> Unit = {
         Box(modifier = GlanceModifier.size(ringDp.dp), contentAlignment = Alignment.Center) {
             Image(provider = ImageProvider(ringBitmap), contentDescription = null, modifier = GlanceModifier.size(ringDp.dp))
-            OneLine("$today", ringNumberSp, WidgetColors.fg, bold = true)
+            OneLine("${s.todayCount}", ringNumberSp, theme.fg, bold = true)
         }
     }
     val info: @Composable () -> Unit = {
         Column(horizontalAlignment = if (useRow) Alignment.Horizontal.Start else Alignment.Horizontal.CenterHorizontally) {
-            OneLine(goalText, 10f, WidgetColors.fg, bold = true)
+            OneLine(goalText, 10f, theme.fg, bold = true)
             Spacer(modifier = GlanceModifier.height(ROW_GAP_DP.dp))
-            DeltaRow(wow, pal.accent)
+            TrendRow(s.trend, format)
             Spacer(modifier = GlanceModifier.height(ROW_GAP_DP.dp))
-            OneLine(streakText, LABEL_SP, WidgetColors.muted)
+            OneLine(streakText, LABEL_SP, theme.muted)
         }
     }
 
-    if (useRow) {
-        Row(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.Vertical.CenterVertically) {
+    when {
+        settings.minimal -> Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) { ring() }
+        useRow -> Row(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.Vertical.CenterVertically) {
             ring()
             Spacer(modifier = GlanceModifier.width(8.dp))
             info()
         }
-    } else {
-        Column(
+        else -> Column(
             modifier = GlanceModifier.fillMaxSize(),
             horizontalAlignment = Alignment.Horizontal.CenterHorizontally,
             verticalAlignment = Alignment.Vertical.CenterVertically,

@@ -32,11 +32,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.commitpulse.app.data.lastN
-import com.commitpulse.app.data.streak
-import com.commitpulse.app.data.sum
-import com.commitpulse.app.data.today
-import com.commitpulse.app.data.weekOverWeek
+import com.commitpulse.app.data.summarize
+import java.time.LocalDate
 import com.commitpulse.app.ui.screens.AccountScreen
 import com.commitpulse.app.ui.screens.NotificationsScreen
 import com.commitpulse.app.ui.screens.PersonalizationScreen
@@ -50,7 +47,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            CommitPulseTheme {
+            val settings by viewModel.settings.collectAsState()
+            CommitPulseTheme(materialYou = settings.materialYou) {
                 Surface(color = MaterialTheme.colorScheme.background) {
                     CommitPulseRoot(viewModel)
                 }
@@ -66,6 +64,8 @@ private fun CommitPulseRoot(viewModel: MainViewModel) {
     val account by viewModel.account.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
     val lastError by viewModel.lastError.collectAsState()
+    val lastSync by viewModel.lastSync.collectAsState()
+    val summary = remember(history) { summarize(history, LocalDate.now()) }
 
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(Unit) {
@@ -76,16 +76,15 @@ private fun CommitPulseRoot(viewModel: MainViewModel) {
 
     var tab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Podgląd", "Personalizacja", "Powiadomienia", "Konto")
-    val wow = history.weekOverWeek()
 
     Column(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
             Text("Commit Pulse", fontSize = 34.sp, fontWeight = FontWeight.Bold)
             Row(modifier = Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                StatItem("dziś", history.today().toString())
-                StatItem("seria", "${history.streak()} dni")
-                StatItem("7 dni", history.lastN(7).sum().toString())
-                StatItem("w/w", wow.label)
+                StatItem("dziś", summary.todayCount.toString())
+                StatItem("seria", "${summary.streak} dni")
+                StatItem("7 dni", summary.last7.toString())
+                StatItem("vs poprz. 7", summary.trend.label(settings.trendFormat))
             }
         }
 
@@ -97,9 +96,12 @@ private fun CommitPulseRoot(viewModel: MainViewModel) {
 
         Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             when (tab) {
-                0 -> PreviewModesScreen(settings, history, onModeChange = { mode -> viewModel.updateSettings { it.copy(mode = mode) } })
-                1 -> PersonalizationScreen(settings, history, onUpdate = viewModel::updateSettings)
-                2 -> NotificationsScreen(settings, history, onUpdate = viewModel::updateSettings)
+                0 -> PreviewModesScreen(
+                    settings, history, summary, lastSync,
+                    onModeChange = { mode -> viewModel.updateSettings { it.copy(mode = mode) } },
+                )
+                1 -> PersonalizationScreen(settings, history, summary, onUpdate = viewModel::updateSettings)
+                2 -> NotificationsScreen(settings, history, summary, onUpdate = viewModel::updateSettings)
                 3 -> AccountScreen(
                     account = account,
                     isSyncing = isSyncing,

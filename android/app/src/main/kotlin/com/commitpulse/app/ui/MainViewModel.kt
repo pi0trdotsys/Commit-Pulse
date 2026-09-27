@@ -35,6 +35,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val lastError: StateFlow<String?> = settingsRepository.lastErrorFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    val lastSync: StateFlow<Long?> = settingsRepository.lastSyncFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
 
