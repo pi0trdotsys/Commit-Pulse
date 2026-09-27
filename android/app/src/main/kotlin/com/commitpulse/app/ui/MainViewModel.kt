@@ -7,7 +7,9 @@ import com.commitpulse.app.commitPulseApp
 import com.commitpulse.app.data.DayCommit
 import com.commitpulse.app.data.WidgetSettings
 import com.commitpulse.app.github.GitHubAccount
+import androidx.glance.appwidget.updateAll
 import com.commitpulse.app.github.GitHubResult
+import com.commitpulse.app.widget.CommitPulseWidget
 import com.commitpulse.app.work.WorkScheduler
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -45,6 +47,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun updateSettings(transform: (WidgetSettings) -> WidgetSettings) {
         viewModelScope.launch {
             settingsRepository.update(transform)
+            CommitPulseWidget().updateAll(getApplication())
             val updated = settingsRepository.currentSettings()
             WorkScheduler.scheduleRefresh(getApplication(), updated)
             WorkScheduler.scheduleWeeklyDigest(getApplication(), updated)
@@ -59,6 +62,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 is GitHubResult.Success -> {
                     settingsRepository.saveAccount(result.value.first)
                     settingsRepository.saveHistory(result.value.second)
+                    CommitPulseWidget().updateAll(getApplication())
                 }
                 is GitHubResult.Failure -> settingsRepository.saveError(result.message)
             }
@@ -75,6 +79,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 is GitHubResult.Success -> {
                     settingsRepository.saveAccount(result.value.first)
                     settingsRepository.saveHistory(result.value.second)
+                    CommitPulseWidget().updateAll(getApplication())
                 }
                 is GitHubResult.Failure -> {
                     settingsRepository.saveError(result.message)
@@ -90,6 +95,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             gitHubRepository.signOut()
             settingsRepository.saveAccount(null)
             settingsRepository.saveHistory(emptyList())
+            CommitPulseWidget().updateAll(getApplication())
         }
     }
 }

@@ -7,23 +7,28 @@ import android.graphics.Paint
 import android.graphics.Path
 import androidx.compose.ui.graphics.toArgb
 import com.commitpulse.app.data.DayCommit
+import com.commitpulse.app.data.level
+import java.time.LocalDate
 import kotlin.math.max
 import androidx.compose.ui.graphics.Color as ComposeColor
 
 /** Rysowanie sparklinów i pierścienia celu do bitmapy — Glance nie ma Canvas/Path jak Compose. */
 object WidgetGraphics {
 
-    fun sparkline(days: List<DayCommit>, accent: ComposeColor, widthPx: Int, heightPx: Int): Bitmap {
+    fun sparkline(days: List<DayCommit>, accent: ComposeColor, widthPx: Int, heightPx: Int, density: Float): Bitmap {
         val bmp = Bitmap.createBitmap(widthPx.coerceAtLeast(1), heightPx.coerceAtLeast(1), Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
         if (days.isEmpty()) return bmp
 
         val accentArgb = accent.toArgb()
+        val strokePx = 1.8f * density
+        val dotRadiusPx = 2.6f * density
+        val inset = dotRadiusPx + strokePx / 2
         val maxVal = max(days.maxOf { it.count }, 1)
-        val step = widthPx.toFloat() / max(days.size - 1, 1)
+        val step = (widthPx - 2 * inset) / max(days.size - 1, 1)
         val points = days.mapIndexed { i, d ->
-            val x = i * step
-            val y = heightPx - (d.count.toFloat() / maxVal) * (heightPx - 3f) - 1.5f
+            val x = inset + i * step
+            val y = heightPx - inset - (d.count.toFloat() / maxVal) * (heightPx - 2 * inset)
             x to y
         }
 
@@ -31,8 +36,8 @@ object WidgetGraphics {
             points.forEachIndexed { i, (x, y) -> if (i == 0) moveTo(x, y) else lineTo(x, y) }
         }
         val areaPath = Path(linePath).apply {
-            lineTo(widthPx.toFloat(), heightPx.toFloat())
-            lineTo(0f, heightPx.toFloat())
+            lineTo(points.last().first, heightPx.toFloat())
+            lineTo(points.first().first, heightPx.toFloat())
             close()
         }
 
@@ -46,7 +51,7 @@ object WidgetGraphics {
         val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = accentArgb
             style = Paint.Style.STROKE
-            strokeWidth = 1.6f * (widthPx / 156f).coerceIn(0.8f, 2f)
+            strokeWidth = strokePx
             strokeJoin = Paint.Join.ROUND
             strokeCap = Paint.Cap.ROUND
         }
@@ -57,8 +62,43 @@ object WidgetGraphics {
             style = Paint.Style.FILL
         }
         val last = points.last()
-        canvas.drawCircle(last.first, last.second, 2.4f, dotPaint)
+        canvas.drawCircle(last.first, last.second, dotRadiusPx, dotPaint)
 
+        return bmp
+    }
+
+    /**
+     * Siatka kontrybucji jako jedna bitmapa — Glance obcina Row/Column do 10 dzieci, więc
+     * siatka złożona z komórek-Boxów gubiła wiersze i kolumny. Bitmapa nie ma tego limitu.
+     */
+    fun contributionGrid(
+        cells: List<List<LocalDate?>>,
+        counts: Map<LocalDate, Int>,
+        maxCount: Int,
+        heat: List<ComposeColor>,
+        cellPx: Int,
+        gapPx: Int,
+    ): Bitmap {
+        val rows = cells.size
+        val cols = cells.firstOrNull()?.size ?: 0
+        val width = (cols * cellPx + (cols - 1) * gapPx).coerceAtLeast(1)
+        val height = (rows * cellPx + (rows - 1) * gapPx).coerceAtLeast(1)
+        val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        val radius = cellPx * 0.25f
+        val heatArgb = heat.map { it.toArgb() }
+
+        cells.forEachIndexed { r, row ->
+            row.forEachIndexed { c, date ->
+                if (date != null) {
+                    paint.color = heatArgb[level(counts[date] ?: 0, maxCount)]
+                    val left = (c * (cellPx + gapPx)).toFloat()
+                    val top = (r * (cellPx + gapPx)).toFloat()
+                    canvas.drawRoundRect(left, top, left + cellPx, top + cellPx, radius, radius, paint)
+                }
+            }
+        }
         return bmp
     }
 

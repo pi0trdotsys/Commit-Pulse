@@ -56,12 +56,12 @@ fun PersonalizationScreen(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(90.dp)
+                .height(124.dp)
                 .clip(RoundedCornerShape(20.dp))
                 .background(WidgetColors.deep)
                 .padding(16.dp),
         ) {
-            WidgetPreview(settings = settings, history = history, pal = pal, modifier = Modifier.size(220.dp, 70.dp))
+            WidgetPreview(settings = settings, history = history, pal = pal, modifier = Modifier.size(240.dp, 92.dp))
         }
 
         Section(title = "Paleta") {

@@ -3,10 +3,10 @@ package com.commitpulse.app.widget
 import android.content.Context
 import android.content.Intent
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
@@ -27,6 +27,7 @@ import androidx.glance.background
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
+import androidx.glance.layout.ContentScale
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
@@ -41,74 +42,84 @@ import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.commitpulse.app.commitPulseApp
 import com.commitpulse.app.data.DayCommit
+import com.commitpulse.app.data.HeaderLayout
 import com.commitpulse.app.data.Surface as WidgetSurface
 import com.commitpulse.app.data.TapAction
 import com.commitpulse.app.data.WeekDelta
 import com.commitpulse.app.data.WidgetMode
 import com.commitpulse.app.data.WidgetSettings
 import com.commitpulse.app.data.asDateMap
-import com.commitpulse.app.data.buildContributionGridDates
+import com.commitpulse.app.data.buildGridCells
+import com.commitpulse.app.data.chooseHeaderLayout
+import com.commitpulse.app.data.compactLabel
+import com.commitpulse.app.data.computeGridLayout
+import com.commitpulse.app.data.estimateTextWidthDp
 import com.commitpulse.app.data.lastN
-import com.commitpulse.app.data.level
-import com.commitpulse.app.data.maxCount
+import com.commitpulse.app.data.lineHeightDp
 import com.commitpulse.app.data.streak
 import com.commitpulse.app.data.today
 import com.commitpulse.app.data.weekOverWeek
-import com.commitpulse.app.data.widgetScaleFactor
-import com.commitpulse.app.github.GitHubAccount
 import com.commitpulse.app.ui.MainActivity
 import com.commitpulse.app.ui.theme.PaletteColors
 import com.commitpulse.app.ui.theme.WidgetColors
 import com.commitpulse.app.ui.theme.paletteFor
 import kotlinx.coroutines.flow.first
 import java.time.LocalDate
-import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
+
+private const val LABEL_SP = 8f
+private const val DELTA_SP = 9f
+private const val BADGE_SP = 9f
+private const val ROW_GAP_DP = 2f
+private const val SECTION_GAP_DP = 4f
 
 class CommitPulseWidget : GlanceAppWidget() {
 
-    /** Rozmiar rzeczywisty widgetu (nie zadeklarowane minimum) — potrzebny do responsywnej siatki heatmapy. */
+    /** Rzeczywisty rozmiar widgetu (nie zadeklarowane minimum) — cały układ liczony jest z niego. */
     override val sizeMode: SizeMode = SizeMode.Exact
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val app = context.commitPulseApp()
-        val settings = app.settingsRepository.currentSettings()
-        val history = app.settingsRepository.historyFlow.first()
-        val account = app.settingsRepository.accountFlow.first()
-        val pal = paletteFor(settings)
-
-        val rangeDays = if (settings.mode == WidgetMode.HEATMAP_30) 30 else settings.range.days
-        val rangeHistory = history.lastN(rangeDays)
+        val repository = context.commitPulseApp().settingsRepository
+        val initialSettings = repository.currentSettings()
+        val initialHistory = repository.historyFlow.first()
 
         provideContent {
-            CommitPulseWidgetContent(
-                settings = settings,
-                pal = pal,
-                history = history,
-                rangeHistory = rangeHistory,
-                account = account,
-            )
+            // Glance utrzymuje sesję widgetu i przy update() tylko rekomponuje treść, bez ponownego
+            // provideGlance — dlatego stan musi być obserwowany tutaj, a nie odczytany raz wyżej.
+            val settings by repository.settingsFlow.collectAsState(initialSettings)
+            val history by repository.historyFlow.collectAsState(initialHistory)
+            CommitPulseWidgetContent(settings, paletteFor(settings), history, history.lastN(settings.range.days))
         }
     }
 }
 
 /**
- * Klasa rozmiaru widgetu wyliczana z rzeczywistych wymiarów ([LocalSize], patrz [SizeMode.Exact]).
- * Sterowana nią adaptacja layoutu (Row↔Column, skala czcionek) to podstawa poprawnego
- * skalowania na każdym kształcie widgetu — od wąskiego, wysokiego 1×2 po szeroki 4×2.
+ * Wymiary obszaru treści + skala czcionki systemowej. Wszystkie decyzje o układzie (ile linii
+ * nagłówka, orientacja siatki, rozmiar liczb) zapadają na podstawie tych liczb, żeby przy
+ * żadnym rozmiarze widgetu ani ustawieniu czcionki tekst się nie zawijał i nic nie było ucinane.
  */
-private data class WidgetSizeClass(val widthDp: Dp, val heightDp: Dp) {
-    val isNarrow: Boolean get() = widthDp < 90.dp
-    val isVeryShort: Boolean get() = heightDp < 60.dp
-    val scale: Float get() = widgetScaleFactor(widthDp.value)
+private class Metrics(widgetWidth: Dp, widgetHeight: Dp, val fontScale: Float, val density: Float) {
+    val padding: Dp = if (widgetWidth < 80.dp || widgetHeight < 80.dp) 6.dp else 10.dp
+    val width: Float = (widgetWidth - padding * 2).value.coerceAtLeast(1f)
+    val height: Float = (widgetHeight - padding * 2).value.coerceAtLeast(1f)
+
+    fun textWidth(text: String, sp: Float): Float = estimateTextWidthDp(text, sp, fontScale)
+    fun lineHeight(sp: Float): Float = lineHeightDp(sp, fontScale)
+    fun toPx(dp: Float): Int = (dp * density).roundToInt()
+
+    /** Największa czcionka (sp), przy której [text] mieści się w [availableDp] szerokości. */
+    fun spToFit(text: String, availableDp: Float): Float = availableDp / estimateTextWidthDp(text, 1f, fontScale)
 }
 
 @Composable
-private fun rememberWidgetSizeClass(): WidgetSizeClass {
+private fun rememberMetrics(): Metrics {
     val size = LocalSize.current
-    return WidgetSizeClass(size.width, size.height)
+    val resources = LocalContext.current.resources
+    return Metrics(size.width, size.height, resources.configuration.fontScale, resources.displayMetrics.density)
 }
-
-private fun WidgetSizeClass.sp(base: Float): TextUnit = (base * scale).sp
 
 @Composable
 private fun tapAction(action: TapAction): Action {
@@ -126,34 +137,46 @@ private fun CommitPulseWidgetContent(
     pal: PaletteColors,
     history: List<DayCommit>,
     rangeHistory: List<DayCommit>,
-    account: GitHubAccount?,
 ) {
     val bg = when (settings.surface) {
         WidgetSurface.TRANSPARENT -> ColorProvider(Color.Transparent)
         WidgetSurface.CARD -> ColorProvider(WidgetColors.surface.copy(alpha = 0.92f))
         WidgetSurface.DARK -> ColorProvider(WidgetColors.deep)
     }
-    val sizeClass = rememberWidgetSizeClass()
+    val m = rememberMetrics()
 
     Box(
         modifier = GlanceModifier
             .fillMaxSize()
             .background(bg)
             .cornerRadius(14.dp)
-            .padding(10.dp)
+            .padding(m.padding)
             .clickable(tapAction(settings.tapAction)),
     ) {
         when (settings.mode) {
-            WidgetMode.HEATMAP -> HeatmapMode(history, pal, sizeClass)
-            WidgetMode.SPARKLINE -> SparklineMode(history, pal, sizeClass)
-            WidgetMode.COUNTER -> CounterMode(history, pal, sizeClass)
-            WidgetMode.GOAL -> GoalMode(history, settings.goal, pal, sizeClass)
-            WidgetMode.HEATMAP_30 -> Heatmap30Mode(rangeHistory, pal, sizeClass)
+            WidgetMode.HEATMAP -> HeatmapMode(history, pal, m)
+            WidgetMode.SPARKLINE -> SparklineMode(history, rangeHistory, pal, m)
+            WidgetMode.COUNTER -> CounterMode(history, pal, m)
+            WidgetMode.GOAL -> GoalMode(history, settings.goal, pal, m)
+            WidgetMode.HEATMAP_30 -> Heatmap30Mode(history, pal, m)
         }
     }
 }
 
-/** Dwie w pełni szerokie warstwy Boxa wyrównane do lewej/prawej — zastępstwo braku Arrangement.SpaceBetween w Glance. */
+// --- Wspólne elementy ---
+
+private fun textStyle(sp: Float, color: Color, bold: Boolean = false) = TextStyle(
+    fontSize = sp.sp,
+    fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+    color = ColorProvider(color),
+)
+
+@Composable
+private fun OneLine(text: String, sp: Float, color: Color, bold: Boolean = false) {
+    Text(text = text, style = textStyle(sp, color, bold), maxLines = 1)
+}
+
+/** Dwie warstwy Boxa wyrównane do lewej/prawej — zastępstwo braku Arrangement.SpaceBetween w Glance. */
 @Composable
 private fun SpaceBetweenRow(start: @Composable () -> Unit, end: @Composable () -> Unit) {
     Box(modifier = GlanceModifier.fillMaxWidth()) {
@@ -162,20 +185,18 @@ private fun SpaceBetweenRow(start: @Composable () -> Unit, end: @Composable () -
     }
 }
 
+private fun Metrics.todayCountWidth(today: Int, sp: Float) = textWidth("$today", sp) + 3f + textWidth("dziś", LABEL_SP)
+
 @Composable
-private fun TodayCount(today: Int, fontSize: TextUnit) {
+private fun TodayCount(today: Int, sp: Float) {
     Row(verticalAlignment = Alignment.Vertical.Bottom) {
-        Text(
-            text = today.toString(),
-            style = TextStyle(fontSize = fontSize, fontWeight = FontWeight.Bold, color = ColorProvider(WidgetColors.fg)),
-        )
-        Spacer(modifier = GlanceModifier.width(5.dp))
-        Text(
-            text = "dziś",
-            style = TextStyle(fontSize = 8.sp, color = ColorProvider(WidgetColors.muted)),
-        )
+        OneLine("$today", sp, WidgetColors.fg, bold = true)
+        Spacer(modifier = GlanceModifier.width(3.dp))
+        OneLine("dziś", LABEL_SP, WidgetColors.muted)
     }
 }
+
+private fun streakBadgeWidth(m: Metrics, streak: Int) = m.textWidth("🔥", LABEL_SP) + 2f + m.textWidth("${streak}d", BADGE_SP) + 12f
 
 @Composable
 private fun StreakBadge(streak: Int, accent: Color) {
@@ -186,14 +207,21 @@ private fun StreakBadge(streak: Int, accent: Color) {
             .padding(horizontal = 6.dp, vertical = 2.dp),
         verticalAlignment = Alignment.Vertical.CenterVertically,
     ) {
-        Text("🔥", style = TextStyle(fontSize = 8.sp))
+        OneLine("🔥", LABEL_SP, accent)
         Spacer(modifier = GlanceModifier.width(2.dp))
-        Text("${streak}d", style = TextStyle(fontSize = 9.sp, fontWeight = FontWeight.Bold, color = ColorProvider(accent)))
+        OneLine("${streak}d", BADGE_SP, accent, bold = true)
     }
 }
 
+private const val DELTA_SUFFIX = "vs poprz. 7 dni"
+
+private fun deltaWidth(m: Metrics, wow: WeekDelta, withSuffix: Boolean): Float {
+    val base = m.textWidth("▲", LABEL_SP) + 2f + m.textWidth(wow.compactLabel(), DELTA_SP)
+    return if (withSuffix) base + 3f + m.textWidth(DELTA_SUFFIX, LABEL_SP) else base
+}
+
 @Composable
-private fun DeltaRow(wow: WeekDelta, accent: Color, compact: Boolean = false) {
+private fun DeltaRow(wow: WeekDelta, accent: Color, withSuffix: Boolean = false) {
     val color = when (wow.direction) {
         WeekDelta.Direction.UP -> accent
         WeekDelta.Direction.DOWN -> WidgetColors.trendDown
@@ -205,209 +233,264 @@ private fun DeltaRow(wow: WeekDelta, accent: Color, compact: Boolean = false) {
         WeekDelta.Direction.FLAT -> "▬"
     }
     Row(verticalAlignment = Alignment.Vertical.CenterVertically) {
-        Text(arrow, style = TextStyle(fontSize = 8.sp, color = ColorProvider(color)))
-        Spacer(modifier = GlanceModifier.width(3.dp))
-        Text(wow.label, style = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.Bold, color = ColorProvider(color)))
-        if (!compact) {
+        OneLine(arrow, LABEL_SP, color)
+        Spacer(modifier = GlanceModifier.width(2.dp))
+        OneLine(wow.compactLabel(), DELTA_SP, color, bold = true)
+        if (withSuffix) {
             Spacer(modifier = GlanceModifier.width(3.dp))
-            Text("vs poprz. 7 dni", style = TextStyle(fontSize = 8.sp, color = ColorProvider(WidgetColors.muted)))
+            OneLine(DELTA_SUFFIX, LABEL_SP, WidgetColors.muted)
         }
     }
 }
 
-/**
- * Prawdziwa kalendarzowa siatka kontrybucji (7 wierszy dni tygodnia × N kolumn-tygodni),
- * jak na github.com — nie jednorzędowy pasek. Rozmiar komórki wyliczany responsywnie
- * z [availableWidth]/[availableHeight] (rzeczywisty rozmiar widgetu, patrz [SizeMode.Exact]),
- * więc po powiększeniu widgetu na ekranie głównym siatka pokazuje więcej tygodni, a nie
- * tylko większe te same 14 dni.
- */
+/** Siatka kontrybucji narysowana jako bitmapa w dokładnie takim rozmiarze, jaki się mieści. */
 @Composable
-private fun ContributionGrid(
+private fun ContributionGridImage(
     history: List<DayCommit>,
     heat: List<Color>,
-    availableWidth: Dp,
-    availableHeight: Dp,
-    maxDays: Int = Int.MAX_VALUE,
+    m: Metrics,
+    widthDp: Float,
+    heightDp: Float,
+    maxDays: Int,
+    fitAllDays: Boolean,
 ) {
     val today = history.lastOrNull()?.date ?: LocalDate.now()
-    val countMap = history.asDateMap()
-    val maxVal = history.maxCount()
+    val layout = computeGridLayout(widthDp, heightDp, maxDays, today, fitAllDays)
+    val cells = buildGridCells(today, layout, earliest = history.firstOrNull()?.date)
+    val counts = history.asDateMap()
+    // Intensywność względem widocznego okresu, nie całej pobranej historii.
+    val visibleMax = cells.flatten().maxOfOrNull { date -> date?.let { counts[it] } ?: 0 } ?: 0
 
-    val minStride = 5.dp
-    val rows = (availableHeight / minStride).toInt().coerceIn(1, 7)
-    val strideFromHeight = availableHeight / rows
+    val gapPx = max(1, m.toPx(layout.gapDp))
+    val availableW = floor(widthDp * m.density).toInt()
+    val availableH = floor(heightDp * m.density).toInt()
+    val cellFitW = (availableW - (layout.columns - 1) * gapPx) / layout.columns
+    val cellFitH = (availableH - (layout.rows - 1) * gapPx) / layout.rows
+    val cellPx = min(m.toPx(layout.cellDp), min(cellFitW, cellFitH)).coerceAtLeast(2)
 
-    val gapRatio = 0.22f
-    val rawCell = strideFromHeight * (1f - gapRatio)
-    val cell = if (rawCell < 2.dp) 2.dp else rawCell
-    val gap = if (rawCell < 2.dp) 1.dp else strideFromHeight * gapRatio
-    val stride = cell + gap
+    val bitmap = WidgetGraphics.contributionGrid(cells, counts, visibleMax, heat, cellPx, gapPx)
+    Image(
+        provider = ImageProvider(bitmap),
+        contentDescription = null,
+        contentScale = ContentScale.Fit,
+        modifier = GlanceModifier.size((bitmap.width / m.density).dp, (bitmap.height / m.density).dp),
+    )
+}
 
-    val columnsFit = (availableWidth / stride).toInt()
-    val maxColumnsForDays = ceil(maxDays.toDouble() / rows).toInt().coerceAtLeast(4)
-    val columns = columnsFit.coerceIn(4, maxColumnsForDays)
+// --- Tryby ---
 
-    val grid = buildContributionGridDates(today, columns, rows)
+private class StatsHeaderSpec(val layout: HeaderLayout, val countSp: Float, val heightDp: Float)
 
-    Column {
-        grid.forEachIndexed { rowIndex, rowDates ->
-            if (rowIndex > 0) Spacer(modifier = GlanceModifier.height(gap))
-            Row {
-                rowDates.forEachIndexed { colIndex, date ->
-                    if (colIndex > 0) Spacer(modifier = GlanceModifier.width(gap))
-                    if (date == null) {
-                        Spacer(modifier = GlanceModifier.size(cell))
-                    } else {
-                        val count = countMap[date] ?: 0
-                        Box(
-                            modifier = GlanceModifier
-                                .size(cell)
-                                .background(ColorProvider(heat[level(count, maxVal)]))
-                                .cornerRadius(cell / 4),
-                        ) {}
-                    }
+private fun statsHeaderSpec(m: Metrics, today: Int, wow: WeekDelta, streak: Int): StatsHeaderSpec {
+    val countSp = if (m.width >= 220f) 20f else 16f
+    val layout = chooseHeaderLayout(
+        widthDp = m.width,
+        countWidthDp = m.todayCountWidth(today, countSp),
+        deltaWidthDp = deltaWidth(m, wow, withSuffix = false),
+        streakWidthDp = streakBadgeWidth(m, streak),
+    )
+    val count = m.lineHeight(countSp)
+    val delta = m.lineHeight(DELTA_SP)
+    val badge = m.lineHeight(BADGE_SP) + 4f
+    val height = when (layout) {
+        HeaderLayout.ONE_ROW -> max(count, badge)
+        HeaderLayout.TWO_ROWS -> max(count, badge) + ROW_GAP_DP + delta
+        HeaderLayout.THREE_ROWS -> count + ROW_GAP_DP + delta + ROW_GAP_DP + badge
+    }
+    return StatsHeaderSpec(layout, countSp, height)
+}
+
+@Composable
+private fun StatsHeader(spec: StatsHeaderSpec, today: Int, wow: WeekDelta, streak: Int, accent: Color) {
+    when (spec.layout) {
+        HeaderLayout.ONE_ROW -> SpaceBetweenRow(
+            start = {
+                Row(verticalAlignment = Alignment.Vertical.CenterVertically) {
+                    TodayCount(today, spec.countSp)
+                    Spacer(modifier = GlanceModifier.width(8.dp))
+                    DeltaRow(wow, accent)
                 }
-            }
+            },
+            end = { StreakBadge(streak, accent) },
+        )
+        HeaderLayout.TWO_ROWS -> Column {
+            SpaceBetweenRow(start = { TodayCount(today, spec.countSp) }, end = { StreakBadge(streak, accent) })
+            Spacer(modifier = GlanceModifier.height(ROW_GAP_DP.dp))
+            DeltaRow(wow, accent)
+        }
+        HeaderLayout.THREE_ROWS -> Column {
+            TodayCount(today, spec.countSp)
+            Spacer(modifier = GlanceModifier.height(ROW_GAP_DP.dp))
+            DeltaRow(wow, accent)
+            Spacer(modifier = GlanceModifier.height(ROW_GAP_DP.dp))
+            StreakBadge(streak, accent)
         }
     }
 }
 
 @Composable
-private fun HeatmapMode(history: List<DayCommit>, pal: PaletteColors, sizeClass: WidgetSizeClass) {
-    val size = LocalSize.current
-    val outerPadding = 10.dp
-    val showHeader = !sizeClass.isVeryShort
-    val headerHeight = if (!showHeader) 0.dp else if (sizeClass.isNarrow) 34.dp else 18.dp
-    val headerGap = if (showHeader) 5.dp else 0.dp
-    val gridWidth = (size.width - outerPadding * 2).let { if (it < 40.dp) 40.dp else it }
-    val gridHeight = (size.height - outerPadding * 2 - headerHeight - headerGap).let { if (it < 16.dp) 16.dp else it }
+private fun HeatmapMode(history: List<DayCommit>, pal: PaletteColors, m: Metrics) {
+    val today = history.today()
+    val wow = history.weekOverWeek()
+    val streak = history.streak()
+    val header = statsHeaderSpec(m, today, wow, streak)
+    // Bardzo niski widget: nagłówek zabrałby całe miejsce siatce, więc zostaje sama siatka.
+    val showHeader = m.height - header.heightDp - SECTION_GAP_DP >= 24f
+    val gridHeight = if (showHeader) m.height - header.heightDp - SECTION_GAP_DP else m.height
 
-    Column(modifier = GlanceModifier.fillMaxSize()) {
+    Column(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.Vertical.CenterVertically) {
         if (showHeader) {
-            Box(modifier = GlanceModifier.fillMaxWidth().height(headerHeight)) {
-                if (sizeClass.isNarrow) {
-                    Column {
-                        TodayCount(history.today(), sizeClass.sp(14f))
-                        Spacer(modifier = GlanceModifier.height(2.dp))
-                        Row(verticalAlignment = Alignment.Vertical.CenterVertically) {
-                            DeltaRow(history.weekOverWeek(), pal.accent, compact = true)
-                            Spacer(modifier = GlanceModifier.width(6.dp))
-                            StreakBadge(history.streak(), pal.accent)
-                        }
-                    }
-                } else {
-                    SpaceBetweenRow(
-                        start = {
-                            Row(verticalAlignment = Alignment.Vertical.CenterVertically) {
-                                TodayCount(history.today(), sizeClass.sp(15f))
-                                Spacer(modifier = GlanceModifier.width(7.dp))
-                                DeltaRow(history.weekOverWeek(), pal.accent, compact = true)
-                            }
-                        },
-                        end = { StreakBadge(history.streak(), pal.accent) },
-                    )
-                }
-            }
-            Spacer(modifier = GlanceModifier.height(headerGap))
+            StatsHeader(header, today, wow, streak, pal.accent)
+            Spacer(modifier = GlanceModifier.height(SECTION_GAP_DP.dp))
         }
-        ContributionGrid(history, pal.heat, gridWidth, gridHeight)
+        ContributionGridImage(history, pal.heat, m, m.width, gridHeight, maxDays = history.size.coerceAtLeast(7), fitAllDays = false)
     }
 }
 
 @Composable
-private fun SparklineMode(history: List<DayCommit>, pal: PaletteColors, sizeClass: WidgetSizeClass) {
-    val size = LocalSize.current
-    val context = LocalContext.current
-    val outerPadding = 10.dp
-    val headerHeight = if (sizeClass.isNarrow) 34.dp else 22.dp
-    val chartWidth = (size.width - outerPadding * 2).let { if (it < 40.dp) 40.dp else it }
-    val chartHeight = (size.height - outerPadding * 2 - headerHeight - 4.dp).let { if (it < 12.dp) 12.dp else it }
-    val bitmap = remember(history, pal.accent, chartWidth, chartHeight) {
-        val density = context.resources.displayMetrics.density
-        WidgetGraphics.sparkline(history, pal.accent, (chartWidth.value * density).toInt(), (chartHeight.value * density).toInt())
-    }
+private fun Heatmap30Mode(history: List<DayCommit>, pal: PaletteColors, m: Metrics) {
+    val wow = history.weekOverWeek()
+    val title = "30 DNI"
+    val oneRow = m.textWidth(title, LABEL_SP) + 8f + deltaWidth(m, wow, withSuffix = false) <= m.width
+    val headerHeight = if (oneRow) m.lineHeight(DELTA_SP) else m.lineHeight(LABEL_SP) + ROW_GAP_DP + m.lineHeight(DELTA_SP)
+    val showHeader = m.height - headerHeight - SECTION_GAP_DP >= 24f
+    val gridHeight = if (showHeader) m.height - headerHeight - SECTION_GAP_DP else m.height
 
-    Column(modifier = GlanceModifier.fillMaxSize()) {
-        Box(modifier = GlanceModifier.fillMaxWidth().height(headerHeight)) {
-            if (sizeClass.isNarrow) {
-                Column {
-                    TodayCount(history.today(), sizeClass.sp(20f))
-                    DeltaRow(history.weekOverWeek(), pal.accent, compact = true)
-                }
-            } else {
+    Column(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.Vertical.CenterVertically) {
+        if (showHeader) {
+            if (oneRow) {
                 SpaceBetweenRow(
-                    start = { TodayCount(history.today(), sizeClass.sp(22f)) },
-                    end = { DeltaRow(history.weekOverWeek(), pal.accent, compact = true) },
+                    start = { OneLine(title, LABEL_SP, WidgetColors.muted) },
+                    end = { DeltaRow(wow, pal.accent) },
                 )
+            } else {
+                Column {
+                    OneLine(title, LABEL_SP, WidgetColors.muted)
+                    Spacer(modifier = GlanceModifier.height(ROW_GAP_DP.dp))
+                    DeltaRow(wow, pal.accent)
+                }
+            }
+            Spacer(modifier = GlanceModifier.height(SECTION_GAP_DP.dp))
+        }
+        // Pełna historia jako źródło liczników: siatka domyka pełne tygodnie prawdziwymi danymi,
+        // zamiast poszarpanej pierwszej kolumny ucinanej dokładnie na 30. dniu.
+        ContributionGridImage(history, pal.heat, m, m.width, gridHeight, maxDays = 30, fitAllDays = true)
+    }
+}
+
+@Composable
+private fun SparklineMode(history: List<DayCommit>, rangeHistory: List<DayCommit>, pal: PaletteColors, m: Metrics) {
+    val today = history.today()
+    val wow = history.weekOverWeek()
+    val countCap = if (m.width >= 220f || m.height >= 140f) 28f else 22f
+    val countSp = min(countCap, m.spToFit("$today", m.width * 0.6f))
+    val countWidth = m.todayCountWidth(today, countSp)
+    val oneRow = countWidth + 8f + deltaWidth(m, wow, withSuffix = false) <= m.width
+    val headerHeight = if (oneRow) m.lineHeight(countSp) else m.lineHeight(countSp) + ROW_GAP_DP + m.lineHeight(DELTA_SP)
+    // Wykres nie wyższy niż ~0,7 szerokości — w wąskim, wysokim widgecie krzywa rozciągnięta
+    // na całą wysokość robi się nieczytelnie szpiczasta.
+    val chartHeight = min(m.height - headerHeight - SECTION_GAP_DP, max(m.width * 0.7f, 28f)).coerceAtLeast(12f)
+    val bitmap = WidgetGraphics.sparkline(rangeHistory, pal.accent, m.toPx(m.width), m.toPx(chartHeight), m.density)
+
+    Column(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.Vertical.CenterVertically) {
+        if (oneRow) {
+            SpaceBetweenRow(start = { TodayCount(today, countSp) }, end = { DeltaRow(wow, pal.accent) })
+        } else {
+            Column {
+                TodayCount(today, countSp)
+                Spacer(modifier = GlanceModifier.height(ROW_GAP_DP.dp))
+                DeltaRow(wow, pal.accent)
             }
         }
-        Spacer(modifier = GlanceModifier.height(4.dp))
+        Spacer(modifier = GlanceModifier.height(SECTION_GAP_DP.dp))
         Image(
             provider = ImageProvider(bitmap),
             contentDescription = null,
-            modifier = GlanceModifier.fillMaxWidth().height(chartHeight),
+            contentScale = ContentScale.Fit,
+            modifier = GlanceModifier.size(m.width.dp, chartHeight.dp),
         )
     }
 }
 
 @Composable
-private fun CounterMode(history: List<DayCommit>, pal: PaletteColors, sizeClass: WidgetSizeClass) {
+private fun CounterMode(history: List<DayCommit>, pal: PaletteColors, m: Metrics) {
+    val number = history.today().toString()
+    val wow = history.weekOverWeek()
+    val withSuffix = deltaWidth(m, wow, withSuffix = true) <= m.width
+    val labelWidth = m.textWidth("commitów", LABEL_SP)
+    val labels = 2 * m.lineHeight(LABEL_SP)
+    val footer = m.lineHeight(DELTA_SP) + SECTION_GAP_DP
+
+    // Etykieta obok liczby, jeśli liczba zostaje czytelna (≥ 24sp); w przeciwnym razie pod nią.
+    val sideBySp = min(44f, m.spToFit(number, m.width - 6f - labelWidth))
+    val sideBySide = sideBySp >= 24f
+    val maxByHeight = (m.height - footer - if (sideBySide) 0f else labels) / (1.3f * m.fontScale)
+    val numberSp = if (sideBySide) {
+        min(sideBySp, maxByHeight)
+    } else {
+        min(min(44f, m.spToFit(number, m.width)), maxByHeight)
+    }.coerceAtLeast(12f)
+
     Column(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.Vertical.CenterVertically) {
-        if (sizeClass.isNarrow) {
-            Text(
-                history.today().toString(),
-                style = TextStyle(fontSize = sizeClass.sp(34f), fontWeight = FontWeight.Bold, color = ColorProvider(WidgetColors.fg)),
-            )
-            Text("commitów dzisiaj", style = TextStyle(fontSize = sizeClass.sp(8f), color = ColorProvider(WidgetColors.muted)))
-        } else {
+        if (sideBySide) {
             Row(verticalAlignment = Alignment.Vertical.Bottom) {
-                Text(
-                    history.today().toString(),
-                    style = TextStyle(fontSize = sizeClass.sp(34f), fontWeight = FontWeight.Bold, color = ColorProvider(WidgetColors.fg)),
-                )
+                OneLine(number, numberSp, WidgetColors.fg, bold = true)
                 Spacer(modifier = GlanceModifier.width(6.dp))
                 Column {
-                    Text("commitów", style = TextStyle(fontSize = sizeClass.sp(8f), color = ColorProvider(WidgetColors.muted)))
-                    Text("dzisiaj", style = TextStyle(fontSize = sizeClass.sp(8f), color = ColorProvider(WidgetColors.muted)))
+                    OneLine("commitów", LABEL_SP, WidgetColors.muted)
+                    OneLine("dzisiaj", LABEL_SP, WidgetColors.muted)
                 }
             }
+        } else {
+            OneLine(number, numberSp, WidgetColors.fg, bold = true)
+            OneLine("commitów", LABEL_SP, WidgetColors.muted)
+            OneLine("dzisiaj", LABEL_SP, WidgetColors.muted)
         }
-        Spacer(modifier = GlanceModifier.height(3.dp))
-        DeltaRow(history.weekOverWeek(), pal.accent)
+        Spacer(modifier = GlanceModifier.height(SECTION_GAP_DP.dp))
+        DeltaRow(wow, pal.accent, withSuffix = withSuffix)
     }
 }
 
 @Composable
-private fun GoalMode(history: List<DayCommit>, goal: Int, pal: PaletteColors, sizeClass: WidgetSizeClass) {
-    val context = LocalContext.current
-    val ringDp = (46f * sizeClass.scale).coerceIn(28f, 64f).dp
-    val ringBitmap = remember(history.today(), goal, pal.accent, ringDp) {
-        val density = context.resources.displayMetrics.density
-        WidgetGraphics.goalRing(history.today(), goal, pal.accent, (ringDp.value * density).toInt())
-    }
+private fun GoalMode(history: List<DayCommit>, goal: Int, pal: PaletteColors, m: Metrics) {
+    val today = history.today()
+    val wow = history.weekOverWeek()
+    val streak = history.streak()
+
+    val goalText = "cel $goal/dzień".takeIf { m.textWidth(it, 10f) <= m.width } ?: "cel $goal"
+    val streakText = "🔥 seria $streak dni".takeIf { m.textWidth(it, LABEL_SP) <= m.width } ?: "🔥 $streak dni"
+    val infoWidth = maxOf(m.textWidth(goalText, 10f), deltaWidth(m, wow, withSuffix = false), m.textWidth(streakText, LABEL_SP))
+    val infoHeight = m.lineHeight(10f) + ROW_GAP_DP + m.lineHeight(DELTA_SP) + ROW_GAP_DP + m.lineHeight(LABEL_SP)
+
+    val rowRing = min(min(m.height, 72f), m.width - 8f - infoWidth)
+    val useRow = rowRing >= 36f
+    val ringDp = if (useRow) rowRing else min(min(m.width, 72f), m.height - infoHeight - 6f).coerceAtLeast(24f)
+    val ringBitmap = WidgetGraphics.goalRing(today, goal, pal.accent, m.toPx(ringDp))
+    val ringNumberSp = min(ringDp * 0.34f / m.fontScale, m.spToFit("$today", ringDp * 0.6f))
 
     val ring: @Composable () -> Unit = {
-        Box(modifier = GlanceModifier.size(ringDp), contentAlignment = Alignment.Center) {
-            Image(provider = ImageProvider(ringBitmap), contentDescription = null, modifier = GlanceModifier.size(ringDp))
-            Text(history.today().toString(), style = TextStyle(fontSize = sizeClass.sp(14f), fontWeight = FontWeight.Bold, color = ColorProvider(WidgetColors.fg)))
+        Box(modifier = GlanceModifier.size(ringDp.dp), contentAlignment = Alignment.Center) {
+            Image(provider = ImageProvider(ringBitmap), contentDescription = null, modifier = GlanceModifier.size(ringDp.dp))
+            OneLine("$today", ringNumberSp, WidgetColors.fg, bold = true)
         }
     }
     val info: @Composable () -> Unit = {
-        Column(horizontalAlignment = if (sizeClass.isNarrow) Alignment.Horizontal.CenterHorizontally else Alignment.Horizontal.Start) {
-            Text("cel $goal/dzień", style = TextStyle(fontSize = sizeClass.sp(10f), fontWeight = FontWeight.Bold, color = ColorProvider(WidgetColors.fg)))
-            Spacer(modifier = GlanceModifier.height(2.dp))
-            DeltaRow(history.weekOverWeek(), pal.accent)
-            Spacer(modifier = GlanceModifier.height(2.dp))
-            Row(verticalAlignment = Alignment.Vertical.CenterVertically) {
-                Text("🔥", style = TextStyle(fontSize = 8.sp))
-                Spacer(modifier = GlanceModifier.width(2.dp))
-                Text("seria ${history.streak()} dni", style = TextStyle(fontSize = sizeClass.sp(8f), color = ColorProvider(WidgetColors.muted)))
-            }
+        Column(horizontalAlignment = if (useRow) Alignment.Horizontal.Start else Alignment.Horizontal.CenterHorizontally) {
+            OneLine(goalText, 10f, WidgetColors.fg, bold = true)
+            Spacer(modifier = GlanceModifier.height(ROW_GAP_DP.dp))
+            DeltaRow(wow, pal.accent)
+            Spacer(modifier = GlanceModifier.height(ROW_GAP_DP.dp))
+            OneLine(streakText, LABEL_SP, WidgetColors.muted)
         }
     }
 
-    if (sizeClass.isNarrow) {
+    if (useRow) {
+        Row(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.Vertical.CenterVertically) {
+            ring()
+            Spacer(modifier = GlanceModifier.width(8.dp))
+            info()
+        }
+    } else {
         Column(
             modifier = GlanceModifier.fillMaxSize(),
             horizontalAlignment = Alignment.Horizontal.CenterHorizontally,
@@ -417,42 +500,5 @@ private fun GoalMode(history: List<DayCommit>, goal: Int, pal: PaletteColors, si
             Spacer(modifier = GlanceModifier.height(6.dp))
             info()
         }
-    } else {
-        Row(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.Vertical.CenterVertically) {
-            ring()
-            Spacer(modifier = GlanceModifier.width(8.dp))
-            info()
-        }
-    }
-}
-
-@Composable
-private fun Heatmap30Mode(rangeHistory: List<DayCommit>, pal: PaletteColors, sizeClass: WidgetSizeClass) {
-    val size = LocalSize.current
-    val outerPadding = 10.dp
-    val showHeader = !sizeClass.isVeryShort
-    val headerHeight = if (!showHeader) 0.dp else if (sizeClass.isNarrow) 26.dp else 14.dp
-    val headerGap = if (showHeader) 5.dp else 0.dp
-    val gridWidth = (size.width - outerPadding * 2).let { if (it < 40.dp) 40.dp else it }
-    val gridHeight = (size.height - outerPadding * 2 - headerHeight - headerGap).let { if (it < 16.dp) 16.dp else it }
-
-    Column(modifier = GlanceModifier.fillMaxSize()) {
-        if (showHeader) {
-            Box(modifier = GlanceModifier.fillMaxWidth().height(headerHeight)) {
-                if (sizeClass.isNarrow) {
-                    Column {
-                        Text("30 DNI", style = TextStyle(fontSize = sizeClass.sp(8f), color = ColorProvider(WidgetColors.muted)))
-                        DeltaRow(rangeHistory.weekOverWeek(), pal.accent, compact = true)
-                    }
-                } else {
-                    SpaceBetweenRow(
-                        start = { Text("30 DNI", style = TextStyle(fontSize = sizeClass.sp(8f), color = ColorProvider(WidgetColors.muted))) },
-                        end = { DeltaRow(rangeHistory.weekOverWeek(), pal.accent, compact = true) },
-                    )
-                }
-            }
-            Spacer(modifier = GlanceModifier.height(headerGap))
-        }
-        ContributionGrid(rangeHistory, pal.heat, gridWidth, gridHeight, maxDays = 30)
     }
 }

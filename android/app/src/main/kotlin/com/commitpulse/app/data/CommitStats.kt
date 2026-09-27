@@ -81,13 +81,18 @@ fun level(count: Int, max: Int): Int {
 
 /**
  * Kalendarzowa siatka kontrybucji w stylu GitHuba: [rows] wierszy dni tygodnia
- * (0 = niedziela u góry, 6 = sobota u dołu — jak na github.com) na [columns] kolumn-tygodni,
+ * (0 = [firstDayOfWeek] u góry; domyślnie niedziela, jak na github.com) na [columns] kolumn-tygodni,
  * od najstarszej kolumny (lewo) do najnowszej (prawo). Ostatnia kolumna jest wyrównana
  * tak, że "dzisiaj" wypada w prawidłowym wierszu dnia tygodnia; komórki "z przyszłości"
  * w bieżącym tygodniu mają wartość null i nie powinny być rysowane.
  */
-fun buildContributionGridDates(today: LocalDate, columns: Int, rows: Int = 7): List<List<LocalDate?>> {
-    val todayRow = today.dayOfWeek.value % 7 // MONDAY=1..SUNDAY=7 -> Nd=0 .. So=6
+fun buildContributionGridDates(
+    today: LocalDate,
+    columns: Int,
+    rows: Int = 7,
+    firstDayOfWeek: DayOfWeek = DayOfWeek.SUNDAY,
+): List<List<LocalDate?>> {
+    val todayRow = (today.dayOfWeek.value - firstDayOfWeek.value + 7) % 7
     return (0 until rows).map { row ->
         (0 until columns).map { col ->
             val weeksAgo = (columns - 1 - col).toLong()
