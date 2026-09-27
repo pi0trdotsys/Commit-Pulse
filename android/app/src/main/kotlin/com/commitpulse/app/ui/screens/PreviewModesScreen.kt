@@ -27,7 +27,7 @@ import com.commitpulse.app.data.WidgetSettings
 import com.commitpulse.app.ui.components.PhoneFrame
 import com.commitpulse.app.ui.components.Section
 import com.commitpulse.app.ui.components.WidgetPreview
-import com.commitpulse.app.ui.theme.PALETTES
+import com.commitpulse.app.ui.theme.paletteFor
 
 @Composable
 fun PreviewModesScreen(
@@ -35,7 +35,7 @@ fun PreviewModesScreen(
     history: List<DayCommit>,
     onModeChange: (WidgetMode) -> Unit,
 ) {
-    val pal = PALETTES.getValue(settings.palette)
+    val pal = paletteFor(settings)
 
     Column(
         modifier = Modifier.padding(20.dp),

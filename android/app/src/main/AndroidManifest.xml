@@ -37,5 +37,17 @@
                 android:resource="@xml/commit_pulse_widget_info" />
         </receiver>
 
+        <receiver
+            android:name=".widget.CommitPulseWidgetTallReceiver"
+            android:exported="false"
+            android:label="@string/widget_label_tall">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/commit_pulse_widget_info_tall" />
+        </receiver>
+
     </application>
 </manifest>

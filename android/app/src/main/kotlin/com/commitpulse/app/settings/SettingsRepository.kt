@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.commitpulse.app.data.DEFAULT_CUSTOM_COLOR_HEX
 import com.commitpulse.app.data.DayCommit
 import com.commitpulse.app.data.Palette
 import com.commitpulse.app.data.Range
@@ -14,6 +15,7 @@ import com.commitpulse.app.data.Surface
 import com.commitpulse.app.data.TapAction
 import com.commitpulse.app.data.WidgetMode
 import com.commitpulse.app.data.WidgetSettings
+import com.commitpulse.app.data.normalizeHexColor
 import com.commitpulse.app.data.toDayCommitList
 import com.commitpulse.app.data.toJson
 import com.commitpulse.app.github.GitHubAccount
@@ -29,6 +31,7 @@ class SettingsRepository(private val context: Context) {
     private object Keys {
         val MODE = stringPreferencesKey("mode")
         val PALETTE = stringPreferencesKey("palette")
+        val CUSTOM_COLOR_HEX = stringPreferencesKey("custom_color_hex")
         val SURFACE = stringPreferencesKey("surface")
         val GOAL = intPreferencesKey("goal")
         val RANGE = intPreferencesKey("range")
@@ -55,6 +58,7 @@ class SettingsRepository(private val context: Context) {
         WidgetSettings(
             mode = prefs[Keys.MODE]?.let { runCatching { WidgetMode.valueOf(it) }.getOrNull() } ?: WidgetMode.HEATMAP,
             palette = prefs[Keys.PALETTE]?.let { runCatching { Palette.valueOf(it) }.getOrNull() } ?: Palette.GITHUB,
+            customColorHex = prefs[Keys.CUSTOM_COLOR_HEX]?.let { normalizeHexColor(it) } ?: DEFAULT_CUSTOM_COLOR_HEX,
             surface = prefs[Keys.SURFACE]?.let { runCatching { Surface.valueOf(it) }.getOrNull() } ?: Surface.CARD,
             goal = prefs[Keys.GOAL] ?: 8,
             range = prefs[Keys.RANGE]?.let { d -> Range.entries.find { it.days == d } } ?: Range.FOURTEEN,
@@ -88,6 +92,7 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { prefs ->
             prefs[Keys.MODE] = next.mode.name
             prefs[Keys.PALETTE] = next.palette.name
+            prefs[Keys.CUSTOM_COLOR_HEX] = normalizeHexColor(next.customColorHex) ?: DEFAULT_CUSTOM_COLOR_HEX
             prefs[Keys.SURFACE] = next.surface.name
             prefs[Keys.GOAL] = next.goal
             prefs[Keys.RANGE] = next.range.days

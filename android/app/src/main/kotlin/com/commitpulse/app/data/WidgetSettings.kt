@@ -15,6 +15,7 @@ enum class TapAction { OPEN_APP, OPEN_PROFILE, REFRESH }
 data class WidgetSettings(
     val mode: WidgetMode = WidgetMode.HEATMAP,
     val palette: Palette = Palette.GITHUB,
+    val customColorHex: String = DEFAULT_CUSTOM_COLOR_HEX,
     val surface: Surface = Surface.CARD,
     val goal: Int = 8,
     val range: Range = Range.FOURTEEN,

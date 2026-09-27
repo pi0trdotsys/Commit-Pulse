@@ -2,4 +2,6 @@
 <resources>
     <string name="app_name">Commit Pulse</string>
     <string name="widget_description">Heatmapa aktywności commitów, licznik dnia i seria — widget 2×1.</string>
+    <string name="widget_description_tall">Ta sama heatmapa w pionowym formacie 1×2 — więcej tygodni w wąskim widgecie.</string>
+    <string name="widget_label_tall">Commit Pulse (1×2, pionowy)</string>
 </resources>

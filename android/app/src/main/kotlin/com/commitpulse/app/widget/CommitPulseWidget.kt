@@ -3,6 +3,7 @@ package com.commitpulse.app.widget
 import android.content.Context
 import android.content.Intent
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -53,11 +54,12 @@ import com.commitpulse.app.data.maxCount
 import com.commitpulse.app.data.streak
 import com.commitpulse.app.data.today
 import com.commitpulse.app.data.weekOverWeek
+import com.commitpulse.app.data.widgetScaleFactor
 import com.commitpulse.app.github.GitHubAccount
 import com.commitpulse.app.ui.MainActivity
-import com.commitpulse.app.ui.theme.PALETTES
 import com.commitpulse.app.ui.theme.PaletteColors
 import com.commitpulse.app.ui.theme.WidgetColors
+import com.commitpulse.app.ui.theme.paletteFor
 import kotlinx.coroutines.flow.first
 import java.time.LocalDate
 import kotlin.math.ceil
@@ -72,18 +74,10 @@ class CommitPulseWidget : GlanceAppWidget() {
         val settings = app.settingsRepository.currentSettings()
         val history = app.settingsRepository.historyFlow.first()
         val account = app.settingsRepository.accountFlow.first()
-        val pal = PALETTES.getValue(settings.palette)
+        val pal = paletteFor(settings)
 
         val rangeDays = if (settings.mode == WidgetMode.HEATMAP_30) 30 else settings.range.days
         val rangeHistory = history.lastN(rangeDays)
-
-        val density = context.resources.displayMetrics.density
-        val sparklineBitmap = if (settings.mode == WidgetMode.SPARKLINE) {
-            WidgetGraphics.sparkline(rangeHistory, pal.accent, (156 * density).toInt(), (24 * density).toInt())
-        } else null
-        val goalRingBitmap = if (settings.mode == WidgetMode.GOAL) {
-            WidgetGraphics.goalRing(history.today(), settings.goal, pal.accent, (46 * density).toInt())
-        } else null
 
         provideContent {
             CommitPulseWidgetContent(
@@ -92,12 +86,29 @@ class CommitPulseWidget : GlanceAppWidget() {
                 history = history,
                 rangeHistory = rangeHistory,
                 account = account,
-                sparklineBitmap = sparklineBitmap,
-                goalRingBitmap = goalRingBitmap,
             )
         }
     }
 }
+
+/**
+ * Klasa rozmiaru widgetu wyliczana z rzeczywistych wymiarów ([LocalSize], patrz [SizeMode.Exact]).
+ * Sterowana nią adaptacja layoutu (Row↔Column, skala czcionek) to podstawa poprawnego
+ * skalowania na każdym kształcie widgetu — od wąskiego, wysokiego 1×2 po szeroki 4×2.
+ */
+private data class WidgetSizeClass(val widthDp: Dp, val heightDp: Dp) {
+    val isNarrow: Boolean get() = widthDp < 90.dp
+    val isVeryShort: Boolean get() = heightDp < 60.dp
+    val scale: Float get() = widgetScaleFactor(widthDp.value)
+}
+
+@Composable
+private fun rememberWidgetSizeClass(): WidgetSizeClass {
+    val size = LocalSize.current
+    return WidgetSizeClass(size.width, size.height)
+}
+
+private fun WidgetSizeClass.sp(base: Float): TextUnit = (base * scale).sp
 
 @Composable
 private fun tapAction(action: TapAction): Action {
@@ -116,14 +127,13 @@ private fun CommitPulseWidgetContent(
     history: List<DayCommit>,
     rangeHistory: List<DayCommit>,
     account: GitHubAccount?,
-    sparklineBitmap: android.graphics.Bitmap?,
-    goalRingBitmap: android.graphics.Bitmap?,
 ) {
     val bg = when (settings.surface) {
         WidgetSurface.TRANSPARENT -> ColorProvider(Color.Transparent)
         WidgetSurface.CARD -> ColorProvider(WidgetColors.surface.copy(alpha = 0.92f))
         WidgetSurface.DARK -> ColorProvider(WidgetColors.deep)
     }
+    val sizeClass = rememberWidgetSizeClass()
 
     Box(
         modifier = GlanceModifier
@@ -134,11 +144,11 @@ private fun CommitPulseWidgetContent(
             .clickable(tapAction(settings.tapAction)),
     ) {
         when (settings.mode) {
-            WidgetMode.HEATMAP -> HeatmapMode(history, pal)
-            WidgetMode.SPARKLINE -> SparklineMode(history, sparklineBitmap)
-            WidgetMode.COUNTER -> CounterMode(history, pal)
-            WidgetMode.GOAL -> GoalMode(history, settings.goal, pal, goalRingBitmap)
-            WidgetMode.HEATMAP_30 -> Heatmap30Mode(rangeHistory, pal)
+            WidgetMode.HEATMAP -> HeatmapMode(history, pal, sizeClass)
+            WidgetMode.SPARKLINE -> SparklineMode(history, pal, sizeClass)
+            WidgetMode.COUNTER -> CounterMode(history, pal, sizeClass)
+            WidgetMode.GOAL -> GoalMode(history, settings.goal, pal, sizeClass)
+            WidgetMode.HEATMAP_30 -> Heatmap30Mode(rangeHistory, pal, sizeClass)
         }
     }
 }
@@ -264,62 +274,103 @@ private fun ContributionGrid(
 }
 
 @Composable
-private fun HeatmapMode(history: List<DayCommit>, pal: PaletteColors) {
+private fun HeatmapMode(history: List<DayCommit>, pal: PaletteColors, sizeClass: WidgetSizeClass) {
     val size = LocalSize.current
     val outerPadding = 10.dp
-    val headerHeight = 18.dp
-    val headerGap = 5.dp
+    val showHeader = !sizeClass.isVeryShort
+    val headerHeight = if (!showHeader) 0.dp else if (sizeClass.isNarrow) 34.dp else 18.dp
+    val headerGap = if (showHeader) 5.dp else 0.dp
     val gridWidth = (size.width - outerPadding * 2).let { if (it < 40.dp) 40.dp else it }
     val gridHeight = (size.height - outerPadding * 2 - headerHeight - headerGap).let { if (it < 16.dp) 16.dp else it }
 
     Column(modifier = GlanceModifier.fillMaxSize()) {
-        Box(modifier = GlanceModifier.fillMaxWidth().height(headerHeight)) {
-            SpaceBetweenRow(
-                start = {
-                    Row(verticalAlignment = Alignment.Vertical.CenterVertically) {
-                        TodayCount(history.today(), 15.sp)
-                        Spacer(modifier = GlanceModifier.width(7.dp))
-                        DeltaRow(history.weekOverWeek(), pal.accent, compact = true)
+        if (showHeader) {
+            Box(modifier = GlanceModifier.fillMaxWidth().height(headerHeight)) {
+                if (sizeClass.isNarrow) {
+                    Column {
+                        TodayCount(history.today(), sizeClass.sp(14f))
+                        Spacer(modifier = GlanceModifier.height(2.dp))
+                        Row(verticalAlignment = Alignment.Vertical.CenterVertically) {
+                            DeltaRow(history.weekOverWeek(), pal.accent, compact = true)
+                            Spacer(modifier = GlanceModifier.width(6.dp))
+                            StreakBadge(history.streak(), pal.accent)
+                        }
                     }
-                },
-                end = { StreakBadge(history.streak(), pal.accent) },
-            )
+                } else {
+                    SpaceBetweenRow(
+                        start = {
+                            Row(verticalAlignment = Alignment.Vertical.CenterVertically) {
+                                TodayCount(history.today(), sizeClass.sp(15f))
+                                Spacer(modifier = GlanceModifier.width(7.dp))
+                                DeltaRow(history.weekOverWeek(), pal.accent, compact = true)
+                            }
+                        },
+                        end = { StreakBadge(history.streak(), pal.accent) },
+                    )
+                }
+            }
+            Spacer(modifier = GlanceModifier.height(headerGap))
         }
-        Spacer(modifier = GlanceModifier.height(headerGap))
         ContributionGrid(history, pal.heat, gridWidth, gridHeight)
     }
 }
 
 @Composable
-private fun SparklineMode(history: List<DayCommit>, bitmap: android.graphics.Bitmap?) {
-    Column(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.Vertical.CenterVertically) {
-        SpaceBetweenRow(
-            start = { TodayCount(history.today(), 22.sp) },
-            end = { DeltaRow(history.weekOverWeek(), WidgetColors.trendUp, compact = true) },
-        )
-        Spacer(modifier = GlanceModifier.height(4.dp))
-        if (bitmap != null) {
-            Image(
-                provider = ImageProvider(bitmap),
-                contentDescription = null,
-                modifier = GlanceModifier.fillMaxWidth().height(24.dp),
-            )
+private fun SparklineMode(history: List<DayCommit>, pal: PaletteColors, sizeClass: WidgetSizeClass) {
+    val size = LocalSize.current
+    val context = LocalContext.current
+    val outerPadding = 10.dp
+    val headerHeight = if (sizeClass.isNarrow) 34.dp else 22.dp
+    val chartWidth = (size.width - outerPadding * 2).let { if (it < 40.dp) 40.dp else it }
+    val chartHeight = (size.height - outerPadding * 2 - headerHeight - 4.dp).let { if (it < 12.dp) 12.dp else it }
+    val bitmap = remember(history, pal.accent, chartWidth, chartHeight) {
+        val density = context.resources.displayMetrics.density
+        WidgetGraphics.sparkline(history, pal.accent, (chartWidth.value * density).toInt(), (chartHeight.value * density).toInt())
+    }
+
+    Column(modifier = GlanceModifier.fillMaxSize()) {
+        Box(modifier = GlanceModifier.fillMaxWidth().height(headerHeight)) {
+            if (sizeClass.isNarrow) {
+                Column {
+                    TodayCount(history.today(), sizeClass.sp(20f))
+                    DeltaRow(history.weekOverWeek(), pal.accent, compact = true)
+                }
+            } else {
+                SpaceBetweenRow(
+                    start = { TodayCount(history.today(), sizeClass.sp(22f)) },
+                    end = { DeltaRow(history.weekOverWeek(), pal.accent, compact = true) },
+                )
+            }
         }
+        Spacer(modifier = GlanceModifier.height(4.dp))
+        Image(
+            provider = ImageProvider(bitmap),
+            contentDescription = null,
+            modifier = GlanceModifier.fillMaxWidth().height(chartHeight),
+        )
     }
 }
 
 @Composable
-private fun CounterMode(history: List<DayCommit>, pal: PaletteColors) {
+private fun CounterMode(history: List<DayCommit>, pal: PaletteColors, sizeClass: WidgetSizeClass) {
     Column(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.Vertical.CenterVertically) {
-        Row(verticalAlignment = Alignment.Vertical.Bottom) {
+        if (sizeClass.isNarrow) {
             Text(
                 history.today().toString(),
-                style = TextStyle(fontSize = 34.sp, fontWeight = FontWeight.Bold, color = ColorProvider(WidgetColors.fg)),
+                style = TextStyle(fontSize = sizeClass.sp(34f), fontWeight = FontWeight.Bold, color = ColorProvider(WidgetColors.fg)),
             )
-            Spacer(modifier = GlanceModifier.width(6.dp))
-            Column {
-                Text("commitów", style = TextStyle(fontSize = 8.sp, color = ColorProvider(WidgetColors.muted)))
-                Text("dzisiaj", style = TextStyle(fontSize = 8.sp, color = ColorProvider(WidgetColors.muted)))
+            Text("commitów dzisiaj", style = TextStyle(fontSize = sizeClass.sp(8f), color = ColorProvider(WidgetColors.muted)))
+        } else {
+            Row(verticalAlignment = Alignment.Vertical.Bottom) {
+                Text(
+                    history.today().toString(),
+                    style = TextStyle(fontSize = sizeClass.sp(34f), fontWeight = FontWeight.Bold, color = ColorProvider(WidgetColors.fg)),
+                )
+                Spacer(modifier = GlanceModifier.width(6.dp))
+                Column {
+                    Text("commitów", style = TextStyle(fontSize = sizeClass.sp(8f), color = ColorProvider(WidgetColors.muted)))
+                    Text("dzisiaj", style = TextStyle(fontSize = sizeClass.sp(8f), color = ColorProvider(WidgetColors.muted)))
+                }
             }
         }
         Spacer(modifier = GlanceModifier.height(3.dp))
@@ -328,46 +379,80 @@ private fun CounterMode(history: List<DayCommit>, pal: PaletteColors) {
 }
 
 @Composable
-private fun GoalMode(history: List<DayCommit>, goal: Int, pal: PaletteColors, ringBitmap: android.graphics.Bitmap?) {
-    Row(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.Vertical.CenterVertically) {
-        Box(modifier = GlanceModifier.size(46.dp), contentAlignment = Alignment.Center) {
-            if (ringBitmap != null) {
-                Image(provider = ImageProvider(ringBitmap), contentDescription = null, modifier = GlanceModifier.size(46.dp))
-            }
-            Text(history.today().toString(), style = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, color = ColorProvider(WidgetColors.fg)))
+private fun GoalMode(history: List<DayCommit>, goal: Int, pal: PaletteColors, sizeClass: WidgetSizeClass) {
+    val context = LocalContext.current
+    val ringDp = (46f * sizeClass.scale).coerceIn(28f, 64f).dp
+    val ringBitmap = remember(history.today(), goal, pal.accent, ringDp) {
+        val density = context.resources.displayMetrics.density
+        WidgetGraphics.goalRing(history.today(), goal, pal.accent, (ringDp.value * density).toInt())
+    }
+
+    val ring: @Composable () -> Unit = {
+        Box(modifier = GlanceModifier.size(ringDp), contentAlignment = Alignment.Center) {
+            Image(provider = ImageProvider(ringBitmap), contentDescription = null, modifier = GlanceModifier.size(ringDp))
+            Text(history.today().toString(), style = TextStyle(fontSize = sizeClass.sp(14f), fontWeight = FontWeight.Bold, color = ColorProvider(WidgetColors.fg)))
         }
-        Spacer(modifier = GlanceModifier.width(8.dp))
-        Column {
-            Text("cel $goal/dzień", style = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.Bold, color = ColorProvider(WidgetColors.fg)))
+    }
+    val info: @Composable () -> Unit = {
+        Column(horizontalAlignment = if (sizeClass.isNarrow) Alignment.Horizontal.CenterHorizontally else Alignment.Horizontal.Start) {
+            Text("cel $goal/dzień", style = TextStyle(fontSize = sizeClass.sp(10f), fontWeight = FontWeight.Bold, color = ColorProvider(WidgetColors.fg)))
             Spacer(modifier = GlanceModifier.height(2.dp))
             DeltaRow(history.weekOverWeek(), pal.accent)
             Spacer(modifier = GlanceModifier.height(2.dp))
             Row(verticalAlignment = Alignment.Vertical.CenterVertically) {
                 Text("🔥", style = TextStyle(fontSize = 8.sp))
                 Spacer(modifier = GlanceModifier.width(2.dp))
-                Text("seria ${history.streak()} dni", style = TextStyle(fontSize = 8.sp, color = ColorProvider(WidgetColors.muted)))
+                Text("seria ${history.streak()} dni", style = TextStyle(fontSize = sizeClass.sp(8f), color = ColorProvider(WidgetColors.muted)))
             }
+        }
+    }
+
+    if (sizeClass.isNarrow) {
+        Column(
+            modifier = GlanceModifier.fillMaxSize(),
+            horizontalAlignment = Alignment.Horizontal.CenterHorizontally,
+            verticalAlignment = Alignment.Vertical.CenterVertically,
+        ) {
+            ring()
+            Spacer(modifier = GlanceModifier.height(6.dp))
+            info()
+        }
+    } else {
+        Row(modifier = GlanceModifier.fillMaxSize(), verticalAlignment = Alignment.Vertical.CenterVertically) {
+            ring()
+            Spacer(modifier = GlanceModifier.width(8.dp))
+            info()
         }
     }
 }
 
 @Composable
-private fun Heatmap30Mode(rangeHistory: List<DayCommit>, pal: PaletteColors) {
+private fun Heatmap30Mode(rangeHistory: List<DayCommit>, pal: PaletteColors, sizeClass: WidgetSizeClass) {
     val size = LocalSize.current
     val outerPadding = 10.dp
-    val headerHeight = 14.dp
-    val headerGap = 5.dp
+    val showHeader = !sizeClass.isVeryShort
+    val headerHeight = if (!showHeader) 0.dp else if (sizeClass.isNarrow) 26.dp else 14.dp
+    val headerGap = if (showHeader) 5.dp else 0.dp
     val gridWidth = (size.width - outerPadding * 2).let { if (it < 40.dp) 40.dp else it }
     val gridHeight = (size.height - outerPadding * 2 - headerHeight - headerGap).let { if (it < 16.dp) 16.dp else it }
 
     Column(modifier = GlanceModifier.fillMaxSize()) {
-        Box(modifier = GlanceModifier.fillMaxWidth().height(headerHeight)) {
-            SpaceBetweenRow(
-                start = { Text("30 DNI", style = TextStyle(fontSize = 8.sp, color = ColorProvider(WidgetColors.muted))) },
-                end = { DeltaRow(rangeHistory.weekOverWeek(), pal.accent, compact = true) },
-            )
+        if (showHeader) {
+            Box(modifier = GlanceModifier.fillMaxWidth().height(headerHeight)) {
+                if (sizeClass.isNarrow) {
+                    Column {
+                        Text("30 DNI", style = TextStyle(fontSize = sizeClass.sp(8f), color = ColorProvider(WidgetColors.muted)))
+                        DeltaRow(rangeHistory.weekOverWeek(), pal.accent, compact = true)
+                    }
+                } else {
+                    SpaceBetweenRow(
+                        start = { Text("30 DNI", style = TextStyle(fontSize = sizeClass.sp(8f), color = ColorProvider(WidgetColors.muted))) },
+                        end = { DeltaRow(rangeHistory.weekOverWeek(), pal.accent, compact = true) },
+                    )
+                }
+            }
+            Spacer(modifier = GlanceModifier.height(headerGap))
         }
-        Spacer(modifier = GlanceModifier.height(headerGap))
         ContributionGrid(rangeHistory, pal.heat, gridWidth, gridHeight, maxDays = 30)
     }
 }

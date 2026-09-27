@@ -12,7 +12,6 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.time.Instant
-import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 data class GitHubAccount(val login: String, val avatarUrl: String)
@@ -90,10 +89,7 @@ class GitHubRepository(context: Context) {
                 val viewer = response.data?.viewer
                     ?: return@withContext GitHubResult.Failure("Nie udało się odczytać odpowiedzi GitHub API.")
 
-                val history = viewer.contributionsCollection.contributionCalendar.weeks
-                    .flatMap { it.contributionDays }
-                    .map { DayCommit(LocalDate.parse(it.date), it.contributionCount) }
-                    .sortedBy { it.date }
+                val history = viewer.contributionsCollection.contributionCalendar.toDayCommits()
 
                 GitHubResult.Success(GitHubAccount(viewer.login, viewer.avatarUrl) to history)
             } catch (e: Exception) {

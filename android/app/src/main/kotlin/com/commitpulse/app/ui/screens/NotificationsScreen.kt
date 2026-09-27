@@ -29,7 +29,7 @@ import com.commitpulse.app.ui.components.HeatmapStrip
 import com.commitpulse.app.ui.components.NotificationMock
 import com.commitpulse.app.ui.components.PhoneFrame
 import com.commitpulse.app.ui.components.Section
-import com.commitpulse.app.ui.theme.PALETTES
+import com.commitpulse.app.ui.theme.paletteFor
 
 private val DAY_LABELS = listOf("Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd")
 
@@ -39,7 +39,7 @@ fun NotificationsScreen(
     history: List<DayCommit>,
     onUpdate: ((WidgetSettings) -> WidgetSettings) -> Unit,
 ) {
-    val pal = PALETTES.getValue(settings.palette)
+    val pal = paletteFor(settings)
     val wow = history.weekOverWeek()
 
     Column(

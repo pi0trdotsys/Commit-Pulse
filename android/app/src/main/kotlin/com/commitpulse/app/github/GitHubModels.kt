@@ -1,6 +1,8 @@
 package com.commitpulse.app.github
 
+import com.commitpulse.app.data.DayCommit
 import kotlinx.serialization.Serializable
+import java.time.LocalDate
 
 @Serializable
 data class GraphQLRequest(
@@ -41,6 +43,17 @@ data class ContributionWeek(val contributionDays: List<ContributionDay>)
 
 @Serializable
 data class ContributionDay(val date: String, val contributionCount: Int)
+
+/**
+ * Mapuje surowy kalendarz kontrybucji z GitHub GraphQL API na posortowaną chronologicznie
+ * historię commitów. Czysta funkcja (bez sieci/Androida) wydzielona z [com.commitpulse.app.github.GitHubRepository.fetchHistory],
+ * żeby dało się przetestować, że commity i ich podsumowania liczone są poprawnie.
+ */
+fun ContributionCalendar.toDayCommits(): List<DayCommit> =
+    weeks
+        .flatMap { it.contributionDays }
+        .map { DayCommit(LocalDate.parse(it.date), it.contributionCount) }
+        .sortedBy { it.date }
 
 const val CONTRIBUTIONS_QUERY = """
 query(${'$'}from: DateTime!, ${'$'}to: DateTime!) {

@@ -1,7 +1,12 @@
 package com.commitpulse.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import com.commitpulse.app.data.DEFAULT_CUSTOM_COLOR_HEX
 import com.commitpulse.app.data.Palette
+import com.commitpulse.app.data.RgbColor
+import com.commitpulse.app.data.WidgetSettings
+import com.commitpulse.app.data.heatScale
+import com.commitpulse.app.data.hexToRgb
 
 /**
  * Wartości sRGB przeliczone z tokenów oklch z src/styles.css i src/lib/widget-settings.ts
@@ -52,15 +57,24 @@ val PALETTES: Map<Palette, PaletteColors> = mapOf(
         ),
         accent = Color(0xFFE5E8EB),
     ),
-    Palette.CUSTOM to PaletteColors(
-        displayName = "Custom / amber",
-        heat = listOf(
-            Color(0xFF30271F),
-            Color(0xFF7E4E1E),
-            Color(0xFFBE7200),
-            Color(0xFFF09C17),
-            Color(0xFFFFC72B),
-        ),
-        accent = Color(0xFFFFB51A),
-    ),
 )
+
+private fun RgbColor.toComposeColor(): Color = Color(r, g, b)
+
+/** Buduje paletę [Palette.CUSTOM] z pojedynczego koloru HEX podanego przez użytkownika. */
+fun customPaletteFrom(hex: String): PaletteColors {
+    val accent = hexToRgb(hex) ?: hexToRgb(DEFAULT_CUSTOM_COLOR_HEX)!!
+    return PaletteColors(
+        displayName = "Własny",
+        heat = heatScale(accent).map { it.toComposeColor() },
+        accent = accent.toComposeColor(),
+    )
+}
+
+/** Rozwiązuje aktywną paletę: statyczną dla GITHUB/MONO, wygenerowaną z HEX-a dla CUSTOM. */
+fun paletteFor(palette: Palette, customColorHex: String): PaletteColors = when (palette) {
+    Palette.CUSTOM -> customPaletteFrom(customColorHex)
+    else -> PALETTES.getValue(palette)
+}
+
+fun paletteFor(settings: WidgetSettings): PaletteColors = paletteFor(settings.palette, settings.customColorHex)
