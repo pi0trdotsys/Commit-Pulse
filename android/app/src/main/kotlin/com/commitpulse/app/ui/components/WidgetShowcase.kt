@@ -24,6 +24,7 @@ import com.commitpulse.app.data.WidgetSettings
 import com.commitpulse.app.ui.theme.WidgetColors
 
 /** Wymiary typowego widgetu na ekranie głównym (zmierzone na telefonie z siatką 5 kolumn). */
+val WIDGET_1X1 = 61.dp to 80.dp
 val WIDGET_1X2 = 61.dp to 172.dp
 val WIDGET_2X1 = 150.dp to 80.dp
 
@@ -41,6 +42,7 @@ fun WidgetShowcase(settings: WidgetSettings, history: List<DayCommit>) {
         contentAlignment = Alignment.Center,
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.Top) {
+            Captioned("1×1") { LiveWidgetPreview(settings, history, WIDGET_1X1.first, WIDGET_1X1.second) }
             Captioned("1×2") { LiveWidgetPreview(settings, history, WIDGET_1X2.first, WIDGET_1X2.second) }
             Captioned("2×1") { LiveWidgetPreview(settings, history, WIDGET_2X1.first, WIDGET_2X1.second) }
         }
